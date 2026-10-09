@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>mediastorm</title>
+<style>
+  :root {
+    --night: #18202D;
+    --night-deep: #111722;
+    --panel: #222C3B;
+    --panel-up: #2B374A;
+    --line: #34415A;
+    --text: #EEF1F6;
+    --muted: #9AA6BA;
+    --bolt: #FFCC33;
+    --good: #7BD8A6;
+    --warn: #FFB454;
+    --bad: #FF7B72;
+    --pad: 96px;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; width: 1920px; height: 1080px; overflow: hidden;
+    background: var(--night); color: var(--text);
+    font-family: "LG Smart UI", "Museo Sans", "Helvetica Neue", Arial, sans-serif;
+    font-size: 30px; line-height: 1.35;
+  }
+  button { font: inherit; color: inherit; }
+  [data-focus] { outline: none; }
+  #view { position: absolute; inset: 0; }
+
+  /* ---------- shared controls ---------- */
+  .btn {
+    display: inline-block; min-width: 260px; padding: 20px 40px; margin: 0 20px 20px 0;
+    background: var(--panel); border: 4px solid transparent; border-radius: 14px; text-align: center;
+  }
+  .btn.primary { background: var(--panel-up); }
+  .btn.quiet { background: transparent; color: var(--muted); }
+  .btn:focus { border-color: var(--bolt); background: #34425A; color: var(--text); }
+  .field {
+    display: block; width: 100%; margin: 0 0 18px; padding: 16px 24px;
+    background: var(--panel); border: 4px solid transparent; border-radius: 14px;
+  }
+  .field span { display: block; color: var(--muted); font-size: 24px; }
+  .field input {
+    display: block; width: 100%; margin-top: 6px; padding: 8px 14px; font: inherit; font-size: 28px;
+    background: var(--night-deep); color: var(--text); border: 2px solid var(--line); border-radius: 8px;
+  }
+  .field:focus { border-color: var(--bolt); }
+  .field input:focus { border-color: var(--bolt); outline: none; }
+  .error { color: var(--bad); margin-top: 20px; }
+  .lede { color: var(--muted); margin: 0 0 40px; }
+
+  /* ---------- sign in, PIN, messages ---------- */
+  .center-panel { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 780px; }
+  .center-panel.wide { width: 1500px; text-align: center; }
+  .center-panel h1 { font-size: 56px; font-weight: 600; margin: 0 0 16px; }
+  .wordmark { letter-spacing: -0.01em; }
+  .wordmark::after { content: ""; display: inline-block; width: 22px; height: 34px; margin-left: 14px;
+    background: var(--bolt); clip-path: polygon(58% 0, 10% 58%, 44% 58%, 30% 100%, 90% 38%, 55% 38%, 70% 0); }
+  .loading { position: absolute; left: var(--pad); bottom: 120px; color: var(--muted); font-size: 34px; }
+
+  /* ---------- profiles ---------- */
+  .profile-grid { display: flex; justify-content: center; flex-wrap: wrap; gap: 48px; margin: 60px 0 56px; }
+  .profile { background: none; border: 0; padding: 0; width: 220px; }
+  .profile .face {
+    width: 200px; height: 200px; margin: 0 auto; border-radius: 50%; overflow: hidden;
+    display: flex; align-items: center; justify-content: center; border: 6px solid transparent;
+    font-size: 84px; font-weight: 600; transition: transform .15s;
+  }
+  .profile .face img { width: 100%; height: 100%; object-fit: cover; }
+  .profile .name { margin-top: 18px; color: var(--muted); }
+  .profile .name small { font-size: 20px; color: var(--muted); border: 2px solid var(--line); border-radius: 6px; padding: 0 6px; margin-left: 6px; }
+  .profile:focus .face { border-color: var(--bolt); transform: scale(1.06); }
+  .profile:focus .name { color: var(--text); }
+
+  /* ---------- home ---------- */
+  #home { position: absolute; inset: 0; }
+  #hero { position: absolute; left: 0; top: 0; right: 0; height: 600px; }
+  .hero-art { position: absolute; left: 640px; top: 0; right: 0; bottom: 0; }
+  .hero-art img {
+    position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .25s;
+  }
+  .hero-art img.on { opacity: 1; }
+  .hero-art::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(90deg, var(--night) 0%, rgba(24,32,45,.75) 22%, rgba(24,32,45,0) 55%),
+                linear-gradient(0deg, var(--night) 0%, rgba(24,32,45,0) 45%);
+  }
+  .hero-text { position: absolute; left: var(--pad); top: 110px; width: 900px; }
+  .hero-text h1 { font-size: 68px; line-height: 1.05; font-weight: 600; margin: 0 0 14px; }
+  .meta { color: var(--muted); margin: 0 0 18px; white-space: pre; }
+  .overview { margin: 0; max-width: 46ch; color: #D5DBE5;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  #rows { position: absolute; left: 0; right: 0; top: 560px; bottom: 0; overflow: hidden; }
+  .rows-layer { will-change: transform; transition: transform .18s ease-out; }
+  .row { margin: 0 0 34px; }
+  .row h2 { font-size: 30px; font-weight: 600; margin: 0 0 14px var(--pad); color: var(--muted); }
+  .row-track { display: flex; gap: 28px; overflow: hidden; padding: 8px var(--pad) 12px; scroll-behavior: smooth; }
+  .card {
+    position: relative; flex: none; padding: 0; overflow: hidden; border-radius: 12px;
+    background: var(--panel); border: 4px solid transparent;
+  }
+  .card.wide { width: 400px; height: 225px; }
+  .card.poster { width: 210px; height: 315px; }
+  .card img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .card-fallback { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    padding: 18px; text-align: center; font-size: 24px; color: var(--muted); z-index: 0; }
+  .card img { z-index: 1; }
+  .card-label { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; padding: 34px 18px 16px; text-align: left;
+    font-size: 24px; background: linear-gradient(transparent, rgba(0,0,0,.85)); }
+  .card-label em { font-style: normal; color: var(--muted); margin-left: 10px; }
+  .card .bar { position: absolute; left: 0; right: 0; bottom: 0; height: 6px; background: rgba(255,255,255,.18); z-index: 3; }
+  .card .bar b { display: block; height: 100%; background: var(--bolt); }
+  .card:focus { border-color: var(--bolt); transform: scale(1.05); }
+  .empty { margin: 40px var(--pad); color: var(--muted); max-width: 40ch; }
+
+  /* ---------- title page ---------- */
+  .title-art { position: absolute; inset: 0; }
+  .title-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .title-art::after { content: ""; position: absolute; inset: 0;
+    background: linear-gradient(90deg, var(--night) 0%, rgba(24,32,45,.88) 35%, rgba(24,32,45,.2) 75%),
+                linear-gradient(0deg, var(--night) 0%, rgba(24,32,45,0) 40%); }
+  .title-body { position: absolute; left: var(--pad); top: 200px; width: 980px; }
+  .title-body h1 { font-size: 80px; line-height: 1.04; font-weight: 600; margin: 0 0 18px; }
+  .title-body .overview { -webkit-line-clamp: 6; margin-bottom: 48px; }
+
+
+  /* ---------- home bar ---------- */
+  .home-bar { position: absolute; right: var(--pad); top: 56px; display: flex; gap: 16px; z-index: 2; }
+  .btn.pill { min-width: 0; padding: 12px 30px; margin: 0; border-radius: 40px; font-size: 26px; background: rgba(34,44,59,.85); }
+  .btn.pill.quiet { color: var(--muted); }
+  .btn.pill:focus { color: var(--text); }
+  .muted { color: var(--muted); }
+
+  /* ---------- series pages ---------- */
+  .title-body.compact { top: 110px; }
+  .title-body.compact h1 { font-size: 68px; }
+  .title-body.compact .overview { -webkit-line-clamp: 3; margin-bottom: 32px; }
+  .series-browse { position: absolute; left: 0; right: 0; top: 590px; bottom: 0; }
+  .row-track.seasons { gap: 16px; padding-top: 4px; padding-bottom: 8px; align-items: center; min-height: 76px; }
+  .tab { flex: none; padding: 12px 28px; border-radius: 40px; background: transparent; border: 4px solid transparent;
+    color: var(--muted); font-size: 26px; }
+  .tab.current { color: var(--text); background: var(--panel); }
+  .tab:focus { border-color: var(--bolt); color: var(--text); }
+  .row-track.episodes { padding-top: 10px; }
+  .card.ep { width: 384px; height: 216px; }
+  .card-label .num { font-style: normal; color: var(--bolt); margin: 0 12px 0 0; }
+  .seen { position: absolute; top: 12px; right: 12px; z-index: 3; font-style: normal; font-size: 20px; padding: 2px 12px;
+    border-radius: 20px; background: rgba(17,23,34,.85); color: var(--muted); }
+  .ep-overview { margin: 14px var(--pad) 0; max-width: 72ch; color: #D5DBE5; font-size: 26px;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+
+
+  /* ---------- release picker ---------- */
+  .picker { position: absolute; inset: 0; padding: 80px var(--pad) 0; display: flex; flex-direction: column; }
+  .picker h1 { font-size: 56px; font-weight: 600; margin: 0 0 8px; }
+  .picker h1 span { color: var(--muted); font-weight: 400; margin-left: 24px; font-size: 40px; }
+  .picker .lede { margin-bottom: 28px; }
+  .picker-list { flex: 1; overflow: hidden; padding: 6px; margin: -6px; padding-bottom: 60px; }
+  .release { display: block; width: 100%; text-align: left; margin: 0 0 14px; padding: 18px 28px;
+    background: var(--panel); border: 4px solid transparent; border-radius: 14px; }
+  .release:focus { border-color: var(--bolt); background: var(--panel-up); }
+  .release .tags { display: flex; flex-wrap: wrap; gap: 12px; }
+  .release .tags b { font-weight: 600; font-size: 28px; padding: 2px 14px; border-radius: 8px; background: rgba(255,255,255,.08); }
+  .release .meta-tags { display: flex; flex-wrap: wrap; gap: 6px 22px; margin-top: 10px; color: #D5DBE5; font-size: 24px; }
+  .release .meta-tags i { font-style: normal; }
+  .release .meta-tags i:first-child { color: var(--bolt); }
+  .release .why { display: block; margin-top: 8px; color: var(--warn); font-size: 22px; }
+  .release .name { display: block; margin-top: 8px; color: var(--muted); font-size: 20px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .release.filtered { opacity: .62; }
+  .release.filtered:focus { opacity: 1; }
+
+  /* ---------- search ---------- */
+  .search { position: absolute; inset: 0; display: flex; gap: 64px; padding: 96px var(--pad) 0; }
+  .search-left { flex: none; width: 620px; }
+  .search-query { font-size: 48px; font-weight: 600; min-height: 72px; margin-bottom: 36px; padding-bottom: 12px;
+    border-bottom: 3px solid var(--line); white-space: nowrap; overflow: hidden; }
+  .search-query.long { font-size: 30px; line-height: 72px; }
+  .search-query.long .caret { height: 30px; vertical-align: -4px; }
+  .caret { display: inline-block; width: 4px; height: 44px; margin-left: 6px; vertical-align: -6px; background: var(--bolt);
+    animation: pulse 1.2s ease-in-out infinite; }
+  .keys { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
+  .key { height: 76px; border-radius: 12px; background: var(--panel); border: 4px solid transparent; font-size: 30px; }
+  .key.wide { grid-column: span 2; font-size: 24px; }
+  .key:focus { border-color: var(--bolt); background: var(--panel-up); }
+  .key.half { grid-column: span 3; font-size: 26px; display: flex; align-items: center; justify-content: center; position: relative; }
+  .key.ai { color: var(--bolt); font-weight: 600; }
+  /* The Speak key holds a real text field so LG's keyboard (and its microphone) can open on it. */
+  .key.voice input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0.01; border: 0; padding: 0;
+    background: transparent; color: transparent; caret-color: transparent; }
+  .ai-tag { font-style: normal; font-size: 22px; font-weight: 600; color: var(--night); background: var(--bolt);
+    border-radius: 6px; padding: 2px 10px; margin-right: 16px; vertical-align: 8px; }
+  .suggest { width: 100%; }
+  .suggest h3 { font-size: 30px; font-weight: 600; color: var(--muted); margin: 0 0 20px; }
+  .chip { display: inline-block; margin: 0 16px 16px 0; padding: 16px 28px; border-radius: 40px; font-size: 26px;
+    background: var(--panel); border: 4px solid transparent; }
+  .chip:focus { border-color: var(--bolt); background: var(--panel-up); }
+  .asking::before { content: ""; display: inline-block; width: 16px; height: 16px; margin-right: 16px; border-radius: 50%;
+    background: var(--bolt); animation: pulse 1.2s ease-in-out infinite; vertical-align: middle; }
+  .search-right { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .search-caption { margin: 18px 0 30px; min-height: 40px; font-size: 32px; color: var(--muted); }
+  .search-results { flex: 1; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 28px; overflow: hidden;
+    padding: 8px; margin: -8px; }
+  .search-results .card.poster { width: 186px; height: 279px; }
+
+  /* ---------- preparing ---------- */
+  #prep { position: fixed; inset: 0; background: var(--night); display: none; z-index: 20; }
+  #prep.on { display: block; }
+  #prep-title { position: absolute; left: var(--pad); top: 380px; font-size: 60px; font-weight: 600; }
+  #prep-status { position: absolute; left: var(--pad); top: 480px; color: var(--muted); font-size: 34px; }
+  #prep-status::before { content: ""; display: inline-block; width: 18px; height: 18px; margin-right: 18px; border-radius: 50%;
+    background: var(--bolt); animation: pulse 1.2s ease-in-out infinite; vertical-align: middle; }
+  #prep-hint { position: absolute; left: var(--pad); bottom: 90px; color: var(--muted); font-size: 24px; }
+  @keyframes pulse { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
+
+  /* ---------- player ---------- */
+  #player { position: fixed; inset: 0; background: #000; display: none; z-index: 30; }
+  #player.on { display: block; }
+  #player video { width: 100%; height: 100%; }
+  #osd { position: absolute; left: 0; right: 0; bottom: 0; padding: 60px var(--pad) 64px;
+    background: linear-gradient(transparent, rgba(0,0,0,.88)); transition: opacity .3s; }
+  #osd.hide { opacity: 0; }
+  #osd-title { font-size: 44px; font-weight: 600; }
+  #osd-sub { color: #D5DBE5; font-size: 28px; margin-top: 4px; white-space: pre; }
+  #osd-release { color: var(--muted); font-size: 20px; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .osd-bar { height: 8px; background: rgba(255,255,255,.2); border-radius: 4px; margin-top: 24px; }
+  .osd-bar i { display: block; height: 100%; width: 0; background: var(--bolt); border-radius: 4px; }
+  #osd-audio { color: #D5DBE5; font-size: 24px; margin-top: 6px; }
+  #osd-source { color: #D5DBE5; font-size: 24px; margin-top: 4px; }
+  .osd-foot { display: flex; justify-content: space-between; color: var(--muted); font-size: 24px; margin-top: 12px; }
+  #audio-menu { position: absolute; top: 0; right: 0; bottom: 0; width: 760px; padding: 64px 64px 48px;
+    background: rgba(17,23,34,.94); display: none; z-index: 5; }
+  #audio-menu.on { display: block; }
+  #audio-list { height: 100%; overflow: hidden; }
+  #audio-list h3 { font-size: 34px; font-weight: 600; margin: 28px 0 18px; }
+  #audio-list h3:first-child { margin-top: 0; }
+  .menu-note { color: var(--muted); font-size: 22px; margin: 4px 0 12px 24px; }
+  #subs { position: absolute; left: 10%; right: 10%; bottom: 110px; text-align: center; pointer-events: none;
+    transition: bottom .2s; z-index: 2; }
+  #osd:not(.hide) ~ #subs { bottom: 340px; }
+  #subs span { display: inline-block; padding: 4px 18px; border-radius: 8px; background: rgba(0,0,0,.45);
+    font-size: 46px; line-height: 1.25; color: #fff; font-weight: 500;
+    text-shadow: 0 0 4px #000, 0 0 2px #000, 2px 2px 3px #000; }
+  .audio-row { position: relative; padding: 18px 24px 18px 56px; margin-bottom: 12px; border-radius: 12px; border: 4px solid transparent; }
+  .audio-row span { display: block; font-size: 30px; }
+  .audio-row small { display: block; color: var(--muted); font-size: 24px; margin-top: 2px; }
+  .audio-row b { position: absolute; left: 22px; top: 50%; width: 14px; height: 14px; margin-top: -7px; border-radius: 50%; }
+  .audio-row.current b { background: var(--bolt); }
+  .audio-row.focus { border-color: var(--bolt); background: var(--panel-up); }
+  #osd-note { position: absolute; left: var(--pad); top: 72px; max-width: 1100px; padding: 18px 28px; border-radius: 12px;
+    background: rgba(17,23,34,.92); border-left: 8px solid var(--warn); font-size: 26px; display: none; }
+  #osd-note.on { display: block; }
+  #spinner { position: absolute; right: var(--pad); top: 80px; width: 26px; height: 26px; border-radius: 50%;
+    background: var(--bolt); animation: pulse 1.2s ease-in-out infinite; display: none; }
+  #spinner.on { display: block; }
+
+  /* ---------- toast ---------- */
+  #toast { position: fixed; left: 50%; bottom: 60px; transform: translateX(-50%); z-index: 50; max-width: 1400px;
+    padding: 20px 32px; border-radius: 14px; background: var(--panel-up); border-left: 8px solid var(--bolt);
+    font-size: 26px; display: none; }
+  #toast.on { display: block; }
+  #toast.warn { border-left-color: var(--warn); }
+
+  /* While an arrow key is held, nothing animates. */
+  .fast *, .fast *::before, .fast *::after { transition: none !important; scroll-behavior: auto !important; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition: none !important; animation: none !important; }
+  }
+</style>
+</head>
+<body>
+<div id="view"></div>
+
+<div id="prep">
+  <div id="prep-title"></div>
+  <div id="prep-status"></div>
+  <div id="prep-hint">Press Back to cancel</div>
+</div>
+
+<div id="player">
+  <video id="video" preload="auto"></video>
+  <div id="spinner"></div>
+  <div id="osd-note"></div>
+  <div id="osd">
+    <div id="osd-title"></div>
+    <div id="osd-sub"></div>
+    <div id="osd-audio"></div>
+    <div id="osd-source"></div>
+    <div id="osd-release"></div>
+    <div class="osd-bar"><i id="osd-bar"></i></div>
+    <div class="osd-foot"><span id="osd-time"></span><span class="osd-hint">Down for audio and subtitles</span></div>
+  </div>
+  <div id="subs"></div>
+  <div id="audio-menu">
+    <div id="audio-list"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="config.js"></script>
+<script src="js/api.js"></script>
+<script src="js/nav.js"></script>
+<script src="js/player.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
