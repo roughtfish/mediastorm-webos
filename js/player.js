@@ -14,8 +14,10 @@ var Player = (function () {
   var START_TIMEOUT_MS = 45000;    // nothing playing after this long counts as a failure
   var STALL_TIMEOUT_MS = 60000;    // buffering mid-film for this long counts too
   var PROGRESS_INTERVAL_MS = 10000;
+  var UP_NEXT_SECONDS = 10;        // countdown before the next episode starts
 
   var s = null;            // the current session
+  var upNext = null;       // the "Up next" countdown, while it's showing
   var osdTimer = null;
 
   // ---------- preparing ----------
@@ -191,7 +193,7 @@ var Player = (function () {
     stop(true);
     var token = {
       item: opts.item, episode: opts.episode || null, profileId: opts.profileId, clientId: opts.clientId,
-      onExit: opts.onExit, startAt: opts.startAt || 0, resume: opts.resume !== false,
+      onExit: opts.onExit, nextEpisode: opts.nextEpisode || null, startAt: opts.startAt || 0, resume: opts.resume !== false,
       candidates: [], cursor: 0, attempts: 0, notes: [], current: null,
       lastSentAt: 0, playingSince: 0, startTimer: null, stallTimer: null, progressTimer: null, ended: false
     };
@@ -708,11 +710,50 @@ var Player = (function () {
     $('osd-time').textContent = fmt(video.currentTime) + ' / ' + fmt(video.duration);
   });
   video.addEventListener('ended', function () {
-    if (!s) return;
+    if (!s || s.ended) return;
     var token = s;
     token.ended = true;
-    sendProgress(token, true, true).then(function () { exit(); });
+    var saved = sendProgress(token, true, true).catch(function () {});
+    var next = (token.episode && token.nextEpisode)
+      ? Promise.resolve(token.nextEpisode(token.episode)).catch(function () { return null; })
+      : Promise.resolve(null);
+    Promise.all([saved, next]).then(function (r) {
+      if (s !== token) return;   // left the player meanwhile
+      if (r[1]) showUpNext(token, r[1]); else exit();
+    });
   });
+
+  // ---------- up next ----------
+  // When an episode ends, the next one starts after a short countdown.
+  // OK starts it straight away; Back stops and returns to the series page.
+  function showUpNext(token, ep) {
+    hideUpNext();
+    $('osd').className = 'hide';
+    Subs.reset();
+    upNext = { token: token, episode: ep, left: UP_NEXT_SECONDS, timer: null };
+    $('upnext-ep').textContent = episodeCode(ep) + (ep.title ? '  ' + ep.title : '');
+    $('upnext-count').textContent = 'Starting in ' + upNext.left;
+    $('upnext').className = 'on';
+    upNext.timer = setInterval(function () {
+      if (!upNext) return;
+      upNext.left -= 1;
+      if (upNext.left <= 0) playUpNext();
+      else $('upnext-count').textContent = 'Starting in ' + upNext.left;
+    }, 1000);
+  }
+  function hideUpNext() {
+    if (upNext) clearInterval(upNext.timer);
+    upNext = null;
+    $('upnext').className = '';
+  }
+  function playUpNext() {
+    var u = upNext;
+    hideUpNext();
+    if (!u || s !== u.token) return;
+    var t = u.token;
+    start({ item: t.item, episode: u.episode, profileId: t.profileId, clientId: t.clientId,
+            onExit: t.onExit, nextEpisode: t.nextEpisode, resume: true });
+  }
   video.addEventListener('pause', function () { if (s) { showOsd(); sendProgress(s, false); } });
 
   function fmt(sec) {
@@ -749,6 +790,7 @@ var Player = (function () {
   }
   function stop(silent) {
     var token = s;
+    hideUpNext();
     teardown();
     if (token && token.current && !token.ended && !silent) sendProgress(token, true);
     s = null;
@@ -779,6 +821,11 @@ var Player = (function () {
     if (prepOn && (k === KEY.BACK || k === KEY.ESC || k === KEY.BACKSPACE)) { exit(); return true; }
     if (prepOn) return true;
     if (!playerOn) return false;
+    if (upNext) {
+      if (k === KEY.ENTER || k === KEY.PLAY || k === KEY.PLAYPAUSE) playUpNext();
+      else if (k === KEY.BACK || k === KEY.ESC || k === KEY.BACKSPACE || k === KEY.STOP) exit();
+      return true;
+    }
     if (Audio.isOpen()) { Audio.key(k); return true; }
     if (k === KEY.BACK || k === KEY.ESC || k === KEY.BACKSPACE || k === KEY.STOP) exit();
     else if (k === KEY.ENTER || k === KEY.PLAYPAUSE) { if (video.paused) video.play(); else video.pause(); showOsd(); }
@@ -793,6 +840,7 @@ var Player = (function () {
 
   // Save position if the app is sent to the background or closed.
   document.addEventListener('visibilitychange', function () {
+    if (document.hidden && upNext) { exit(); return; }   // don't start an episode nobody's watching
     if (document.hidden && s && s.current) { video.pause(); sendProgress(s, true); }
   });
 

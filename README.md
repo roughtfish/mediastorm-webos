@@ -27,6 +27,8 @@ Not affiliated with or supported by the mediastorm project. Tested on an LG C5
   debrid), size, audio and language
 - Audio and subtitle menu, defaulting to your mediastorm profile's language
   and subtitle settings; text subtitles are drawn by the app over the video
+- Up next: when an episode ends, the next one starts after a 10-second
+  countdown (OK to play it now, Back to stop)
 - Watch progress synced back to mediastorm every 10 seconds
 - Debrid streams played straight from the debrid service where possible,
   sparing your server's bandwidth

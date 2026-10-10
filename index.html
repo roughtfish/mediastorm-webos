@@ -255,6 +255,13 @@
   #spinner { position: absolute; right: var(--pad); top: 80px; width: 26px; height: 26px; border-radius: 50%;
     background: var(--bolt); animation: pulse 1.2s ease-in-out infinite; display: none; }
   #spinner.on { display: block; }
+  #upnext { position: absolute; right: var(--pad); bottom: 96px; width: 760px; padding: 36px 44px; border-radius: 16px;
+    background: rgba(17,23,34,.94); border-left: 8px solid var(--bolt); display: none; z-index: 6; }
+  #upnext.on { display: block; }
+  #upnext-label { color: var(--muted); font-size: 26px; }
+  #upnext-ep { font-size: 40px; font-weight: 600; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #upnext-count { font-size: 30px; margin-top: 14px; color: #D5DBE5; }
+  #upnext-hint { color: var(--muted); font-size: 24px; margin-top: 18px; }
 
   /* ---------- toast ---------- */
   #toast { position: fixed; left: 50%; bottom: 60px; transform: translateX(-50%); z-index: 50; max-width: 1400px;
@@ -294,6 +301,12 @@
     <div class="osd-foot"><span id="osd-time"></span><span class="osd-hint">Down for audio and subtitles</span></div>
   </div>
   <div id="subs"></div>
+  <div id="upnext">
+    <div id="upnext-label">Up next</div>
+    <div id="upnext-ep"></div>
+    <div id="upnext-count"></div>
+    <div id="upnext-hint">OK to play now, Back to stop</div>
+  </div>
   <div id="audio-menu">
     <div id="audio-list"></div>
   </div>

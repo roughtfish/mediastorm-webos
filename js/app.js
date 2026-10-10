@@ -522,6 +522,30 @@
     return detailsCache[key];
   }
 
+  // The episode after this one, from the series' episode list: carries on
+  // into the next season, and skips specials and episodes not aired yet.
+  async function nextEpisodeAfter(item, ep) {
+    if (!ep || !(ep.season > 0)) return null;
+    var details = await seriesDetailsCached(item);
+    if (!details || details.error || !details.seasons) return null;
+    var today = new Date().toISOString().slice(0, 10);
+    var list = [];
+    details.seasons.filter(function (se) { return se.number > 0 && se.episodes; })
+      .sort(function (a, b) { return a.number - b.number; })
+      .forEach(function (se) {
+        se.episodes.slice().sort(function (a, b) { return a.episodeNumber - b.episodeNumber; })
+          .forEach(function (e) { list.push({ season: e.seasonNumber || se.number, episode: e.episodeNumber, title: e.name || '', aired: e.airedDate }); });
+      });
+    for (var i = 0; i < list.length; i++) {
+      var e = list[i];
+      if (e.season > ep.season || (e.season === ep.season && e.episode > ep.episode)) {
+        if (e.aired && e.aired.slice(0, 10) > today) return null;
+        return { season: e.season, episode: e.episode, title: e.title };
+      }
+    }
+    return null;
+  }
+
   // Back from a title returns to wherever it was opened from.
   var titleReturn = null;
   function goBackFromTitle() {
@@ -538,6 +562,7 @@
     Player.start({
       item: item, episode: opts.episode || null, profileId: profile.id, clientId: saved.clientId,
       resume: opts.resume, startAt: opts.startAt, manual: opts.manual || null,
+      nextEpisode: item.kind === 'movie' ? null : function (ep) { return nextEpisodeAfter(item, ep); },
       onExit: function (message, played) {
         homeStale = true;   // watch history changed: refresh quietly next time home shows
         titleReturn = keepReturn;
