@@ -10,7 +10,9 @@ var Player = (function () {
   var KEY = Nav.KEY;
 
   var IMAGE_CODECS = ['mjpeg', 'png', 'bmp', 'gif', 'webp', 'tiff'];
-  var MAX_ATTEMPTS = 6;            // releases tried before giving up
+  var MAX_ATTEMPTS = 8;            // releases prepared per play, including the background backup
+  var PARALLEL = { usenet: 3, debrid: 2 };   // backups checked at once after a failure
+  var RANK_GRACE_MS = 5000;        // how long a ready backup waits for a better-ranked one still being checked
   var START_TIMEOUT_MS = 45000;    // nothing playing after this long counts as a failure
   var STALL_TIMEOUT_MS = 60000;    // buffering mid-film for this long counts too
   var PROGRESS_INTERVAL_MS = 10000;
@@ -97,55 +99,127 @@ var Player = (function () {
     return '';
   }
 
-  // Walks the candidates until one passes the checks. Profile 7 releases are
-  // skipped while better ones remain, but used as a last resort (the TV can
-  // still show the HDR10 base layer).
-  async function pickCandidate(token) {
-    var fallbackP7 = null;
-    while (s.cursor < s.candidates.length && s.attempts < MAX_ATTEMPTS) {
-      var c = s.candidates[s.cursor++];
-      s.attempts++;
-      if (s !== token) throw new Error('cancelled');
-      prepLine(s.attempts === 1 ? 'Checking the file' : 'Trying another release (' + s.attempts + ' of up to ' + Math.min(MAX_ATTEMPTS, s.candidates.length) + ')');
+  // Prepares one candidate (resolving it if needed) and checks the file.
+  // The work is kept on the candidate, so it's only ever done once: a backup
+  // prepared earlier is ready instantly when it's needed.
+  function serviceKind(c) { return /usenet/i.test(c.serviceType || '') ? 'usenet' : 'debrid'; }
+  function prepare(c, token, quiet) {
+    if (c.prep) return c.prep;
+    token.attempts++;
+    c.state = 'pending';
+    c.prep = (async function () {
+      try { return await check(); }
+      catch (e) {
+        if (e.message === 'cancelled') throw e;
+        token.notes.push('Couldn\'t check ' + shortName(c.name) + '.');
+        c.state = 'bad'; return c;
+      }
+    })();
+    c.prep.catch(function () {});
+    return c.prep;
 
+    async function check() {
       if (!c.path) {
         try {
-          var r = await resolveRelease(c, token);
+          var r = await resolveRelease(c, token, quiet);
           c.path = r && r.webdavPath;
           c.fileSize = r && r.fileSize;
           c.healthStatus = r && r.healthStatus;
         } catch (e) {
           if (e.message === 'cancelled') throw e;
-          s.notes.push(failureReason(c, e));   // marked bad, refused, or unavailable: move on
-          continue;
+          token.notes.push(failureReason(c, e));   // marked bad, refused, or unavailable
+          c.state = 'bad'; return c;
         }
-        if (!c.path) { s.notes.push('mediastorm couldn\'t prepare ' + (c.name || 'that release') + '.'); continue; }
+        if (!c.path) { token.notes.push('mediastorm couldn\'t prepare ' + (c.name || 'that release') + '.'); c.state = 'bad'; return c; }
       }
-
-      var check = await vet(c.path);
+      var v = await vet(c.path);
       if (s !== token) throw new Error('cancelled');
-      if (check.ok) { c.info = check.info; return c; }
-      s.notes.push(check.reason);
-      if (check.markBad) {
+      if (v.ok) { c.info = v.info; c.state = 'ok'; return c; }
+      token.notes.push(v.reason);
+      if (v.markBad) {
         Api.markBad({ releaseName: c.name, serviceType: c.serviceType, sourcePath: c.path, reason: 'webos:not-a-video' })
           .catch(function () {});
       }
-      if (check.profile7 && !fallbackP7) { c.info = check.info; fallbackP7 = c; }
+      if (v.profile7) { c.info = v.info; c.state = 'p7'; return c; }
+      c.state = 'bad'; return c;
     }
-    if (fallbackP7) { fallbackP7.p7 = true; return fallbackP7; }
-    throw new Error(s.notes.length ? s.notes[s.notes.length - 1] + ' No other release worked either.' : 'None of the available releases could be played.');
+  }
+
+  // Picks the release to play. The first check is on its own, since the top
+  // release usually works; once anything fails, up to three Usenet or two
+  // debrid backups are checked at once. mediastorm's ranking still wins: a
+  // ready backup waits briefly for better-ranked ones that are still being
+  // checked. Profile 7 releases are skipped while better ones remain, but used
+  // as a last resort (the TV can still show the HDR10 base layer).
+  async function pickCandidate(token) {
+    var list = token.candidates;
+    var graceUntil = 0;
+    while (true) {
+      if (s !== token) throw new Error('cancelled');
+      var open = list.filter(function (c) { return !c.used && c.state !== 'bad'; });
+
+      // Best ready release, if every better-ranked one has finished (or the grace time is up).
+      var best = null, betterPending = false;
+      for (var i = 0; i < open.length; i++) {
+        if (open[i].state === 'ok') { best = open[i]; break; }
+        if (open[i].state === 'pending' || !open[i].state) betterPending = true;
+      }
+      if (best && (!betterPending || (graceUntil && Date.now() >= graceUntil))) { best.used = true; return best; }
+      if (best && !graceUntil) graceUntil = Date.now() + RANK_GRACE_MS;
+
+      // Start more checks while there's room.
+      var limit = token.parallel ? null : 1;
+      var busy = { usenet: 0, debrid: 0 }, total = 0;
+      open.forEach(function (c) { if (c.state === 'pending') { busy[serviceKind(c)]++; total++; } });
+      if (!best) open.forEach(function (c) {
+        if (c.state || token.attempts >= MAX_ATTEMPTS) return;
+        var k = serviceKind(c);
+        if (limit ? total >= limit : busy[k] >= PARALLEL[k]) return;
+        prepare(c, token, false);
+        busy[k]++; total++;
+      });
+
+      var pending = open.filter(function (c) { return c.state === 'pending'; });
+      if (!pending.length) {
+        if (best) { best.used = true; return best; }
+        var p7 = open.filter(function (c) { return c.state === 'p7'; })[0];
+        if (p7) { p7.used = true; p7.p7 = true; return p7; }
+        throw new Error(token.notes.length ? token.notes[token.notes.length - 1] + ' No other release worked either.' : 'None of the available releases could be played.');
+      }
+
+      var tried = list.filter(function (c) { return c.state && c.state !== 'pending'; }).length;
+      prepLine(tried === 0 && pending.length === 1 ? 'Checking the file'
+        : 'Trying other releases (' + pending.length + ' being checked, ' + tried + ' done)');
+
+      var waits = pending.map(function (c) { return c.prep; });
+      if (graceUntil) waits.push(new Promise(function (ok) { setTimeout(ok, Math.max(0, graceUntil - Date.now())); }));
+      await Promise.race(waits).catch(function (e) { if (e.message === 'cancelled') throw e; });
+      if (list.some(function (c) { return c.state === 'bad' || c.state === 'p7'; })) token.parallel = true;
+    }
+  }
+
+  // While a release plays, the next best one is prepared quietly, so a later
+  // failure (the TV can't decode it, or it stalls) switches almost at once.
+  async function prepareBackup(token) {
+    while (s === token && token.attempts < MAX_ATTEMPTS) {
+      var open = token.candidates.filter(function (c) { return !c.used && c.state !== 'bad'; });
+      if (open.some(function (c) { return c.state === 'ok' || c.state === 'pending'; })) return;
+      var next = open.filter(function (c) { return !c.state; })[0];
+      if (!next) return;
+      try { await prepare(next, token, true); } catch (e) { return; }
+    }
   }
 
   // Some Usenet setups prepare a release in the background: resolving returns a
   // queue ticket first, and the path once it's ready.
-  async function resolveRelease(c, token) {
+  async function resolveRelease(c, token, quiet) {
     var r = await Api.resolve(c.result, s.profileId);
     if (r && r.webdavPath) return r;
     if (!r || !(r.queueId > 0)) return r;
     var started = Date.now();
     while (Date.now() - started < 120000) {
       if (s !== token) throw new Error('cancelled');
-      prepLine((r.healthStatus === 'queued' ? 'Queued: ' : 'Preparing: ') + shortName(c.name));
+      if (!quiet && !token.parallel) prepLine((r.healthStatus === 'queued' ? 'Queued: ' : 'Preparing: ') + shortName(c.name));
       await new Promise(function (ok) { setTimeout(ok, 1500); });
       r = await Api.queueStatus(r.queueId);
       if (r && r.webdavPath) return r;
@@ -194,7 +268,7 @@ var Player = (function () {
     var token = {
       item: opts.item, episode: opts.episode || null, profileId: opts.profileId, clientId: opts.clientId,
       onExit: opts.onExit, nextEpisode: opts.nextEpisode || null, startAt: opts.startAt || 0, resume: opts.resume !== false,
-      candidates: [], cursor: 0, attempts: 0, notes: [], current: null,
+      candidates: [], attempts: 0, parallel: false, notes: [], current: null,
       lastSentAt: 0, playingSince: 0, startTimer: null, stallTimer: null, progressTimer: null, ended: false
     };
     s = token;
@@ -268,6 +342,7 @@ var Player = (function () {
 
   async function switchTo(token, reason) {
     if (reason) {
+      token.parallel = true;
       osdNote(reason + ' Trying another release.');
       token.playingSince = 0;
       clearTimeout(token.startTimer); clearTimeout(token.stallTimer);
@@ -280,7 +355,8 @@ var Player = (function () {
     var previous = token.current;
     token.current = c;
     if (!c.primary && token.prequeueId) {
-      var rest = token.candidates.slice(token.cursor).map(function (x) { return x.result; }).filter(Boolean);
+      var rest = token.candidates.filter(function (x) { return !x.used && x.state !== 'bad'; })
+        .map(function (x) { return x.result; }).filter(Boolean);
       Api.adoptMigration(token.prequeueId, {
         streamPath: c.path, result: c.result, fileSize: c.fileSize || 0, healthStatus: c.healthStatus || '',
         migrationCandidates: rest
@@ -682,6 +758,7 @@ var Player = (function () {
   // ---------- player events ----------
   video.addEventListener('playing', function () {
     if (!s) return;
+    if (!s.playingSince) { var t = s; setTimeout(function () { if (s === t && t.playingSince) prepareBackup(t); }, 5000); }
     s.playingSince = s.playingSince || Date.now();
     clearTimeout(s.startTimer);
     clearTimeout(s.stallTimer);

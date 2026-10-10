@@ -22,7 +22,9 @@ Not affiliated with or supported by the mediastorm project. Tested on an LG C5
 - Automatic fallback: releases that turn out to be a picture rather than a
   video are marked bad and skipped, Dolby Vision profile 7 (which LG TVs can't
   show as Dolby Vision) is avoided where possible, and a release that won't
-  start or stalls is swapped for a backup without losing your place
+  start or stalls is swapped for a backup without losing your place. After a
+  failure, several backups are checked at once, and one is kept ready while
+  you watch so a later switch is quick
 - A manual release picker, with plain labels for quality, source (Usenet or
   debrid), size, audio and language
 - Audio and subtitle menu, defaulting to your mediastorm profile's language
