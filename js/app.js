@@ -27,6 +27,40 @@
   function writeHomeCache(data) {
     try { localStorage.setItem(homeCacheKey(), JSON.stringify({ rows: data.rows, at: Date.now() })); } catch (e) { /* full: skip */ }
   }
+  // AI picks row: mediastorm asks its AI provider afresh on every request, so the
+  // app keeps the answer for a few hours rather than asking on every home refresh.
+  // It's fetched behind the home screen, never holding the other rows up.
+  var AI_ROW_TTL = 6 * 3600 * 1000, AI_ROW_RETRY = 2 * 60 * 1000;   // retry soon if a request was dropped
+  var aiFetching = {};
+  function aiCacheKey(id) { return STORE + '-ai-' + id; }
+  function readAiCache(id) {
+    try {
+      var c = JSON.parse(localStorage.getItem(aiCacheKey(id)));
+      if (!c || !Array.isArray(c.items)) return null;
+      return Date.now() - c.at < (c.items.length ? AI_ROW_TTL : AI_ROW_RETRY) ? c : null;
+    } catch (e) { return null; }
+  }
+  function readAiCacheAny(id) {   // even if out of date, to keep showing something while refreshing
+    try { var c = JSON.parse(localStorage.getItem(aiCacheKey(id))); return c && Array.isArray(c.items) ? c : null; } catch (e) { return null; }
+  }
+  function fetchAiRow(id) {
+    if (aiFetching[id]) return;
+    aiFetching[id] = true;
+    Api.aiRecommendations(id).then(function (r) {
+      var items = ((r && r.items) || []).map(function (t) { return t && t.title ? fromTitle(t.title) : null; })
+        .filter(Boolean).slice(0, 20);
+      try { localStorage.setItem(aiCacheKey(id), JSON.stringify({ items: items, at: Date.now() })); } catch (e) { /* full: skip */ }
+      if (items.length && profile && profile.id === id) {
+        homeStale = true;
+        // If a refresh is already running it may have missed the new row, so go again shortly after.
+        if (homeRefreshing) setTimeout(function () { if (profile && profile.id === id) refreshHomeInBackground(); }, 3000);
+        else refreshHomeInBackground();
+      }
+    }, function () {
+      // Not set up, dropped, or the AI didn't answer: try again in a couple of minutes, not on every refresh.
+      try { localStorage.setItem(aiCacheKey(id), JSON.stringify({ items: [], at: Date.now() })); } catch (e) { /* full: skip */ }
+    }).then(function () { aiFetching[id] = false; });
+  }
   var lastHomeKey = null;     // card to refocus when coming back home
 
   // ---------- helpers ----------
@@ -50,6 +84,25 @@
     view.className = scopeClass || '';
     view.innerHTML = html;
     Nav.setScope(view);
+  }
+
+  // ---------- images ----------
+  // mediastorm asks TMDB for large images (w780 posters, original backdrops
+  // and episode stills). Cards are much smaller, so the app asks TMDB for a
+  // size that fits instead. Anything that isn't a TMDB image is left alone,
+  // and if TMDB refuses the smaller size the original is loaded instead.
+  function tmdbSize(url, size) {
+    return url ? String(url).replace(/(\/\/image\.tmdb\.org\/t\/p\/)(w\d+|original)(\/)/, '$1' + size + '$3') : url;
+  }
+  window.msImgFail = function (el) {
+    var full = el.getAttribute('data-full');
+    if (full && el.getAttribute('src') !== full) el.setAttribute('src', full);
+    else el.remove();
+  };
+  function imgTag(url, size, lazy) {
+    var small = tmdbSize(url, size);
+    return '<img src="' + esc(small) + '"' + (small !== url ? ' data-full="' + esc(url) + '"' : '') + ' alt=""' +
+      (lazy ? ' loading="lazy" decoding="async"' : '') + ' onerror="msImgFail(this)">';
   }
 
   // ---------- normalising titles from different endpoints ----------
@@ -165,7 +218,9 @@
     });
     document.getElementById('signout').addEventListener('click', function () {
       Api.logout().catch(function () {});
-      (saved.profiles || []).forEach(function (p) { try { localStorage.removeItem(STORE + '-home-' + p.id); } catch (e) { /* ignore */ } });
+      (saved.profiles || []).forEach(function (p) {
+        try { localStorage.removeItem(STORE + '-home-' + p.id); localStorage.removeItem(aiCacheKey(p.id)); } catch (e) { /* ignore */ }
+      });
       saved.token = ''; saved.profileId = ''; saved.profiles = []; save();
       detailsCache = {};
       renderSetup();
@@ -212,6 +267,9 @@
     }
     var rows = [];
     if (Array.isArray(results[0]) && results[0].length) rows.push({ title: 'Continue watching', wide: true, items: results[0].map(fromContinue) });
+    if (!readAiCache(uid)) fetchAiRow(uid);
+    var ai = readAiCacheAny(uid);
+    if (ai && ai.items.length) rows.push({ title: 'AI picks for you', items: ai.items });
     if (Array.isArray(results[1]) && results[1].length) rows.push({ title: 'Your watchlist', items: results[1].map(fromWatchlist) });
     var top = results[2] && results[2].items;
     if (Array.isArray(top) && top.length) rows.push({ title: 'Top 10 today', items: top.map(function (t) { return fromTitle(t.title); }) });
@@ -246,6 +304,7 @@
       if (cached) { homeData = { rows: cached.rows, failed: 0 }; homeStale = true; }
     }
     if (homeData && homeStale && !refresh) refreshHomeInBackground();
+    else if (homeData && !refresh && profile && !readAiCache(profile.id)) fetchAiRow(profile.id);   // coming back home: retry the AI row if due
     if (!homeData || refresh) {
       show('<div class="loading">Loading ' + esc(profile.name) + '\'s home</div>', 'screen-home');
       try { homeData = await loadHome(); homeStale = false; writeHomeCache(homeData); }
@@ -269,7 +328,7 @@
             ? '<span class="card-label">' + esc(item.name) + (item.next ? '<em>S' + item.next.season + ' E' + item.next.episode + '</em>' : '') + '</span>'
             : '';
           return '<button class="card ' + (row.wide ? 'wide' : 'poster') + '" data-focus data-i="' + i + '" data-key="' + esc(item.key) + '">' +
-            (img ? '<img src="' + esc(img) + '" alt="" loading="lazy" decoding="async" onerror="this.remove()">' : '') +
+            (img ? imgTag(img, row.wide ? 'w780' : 'w342', true) : '') +
             '<span class="card-fallback">' + esc(item.name) + '</span>' + label + bar + '</button>';
         }).join('') + '</div></section>';
     }).join('');
@@ -292,12 +351,16 @@
       document.getElementById('hero-title').textContent = item.name;
       document.getElementById('hero-meta').textContent = metaLine(item);
       document.getElementById('hero-overview').textContent = item.overview;
-      var src = item.backdrop || item.poster || '';
+      var full = item.backdrop || item.poster || '';
+      var src = tmdbSize(full, 'w1280');
       var front = document.getElementById('hero-' + heroFront);
       if (front.getAttribute('src') === src) return;
       var back = document.getElementById('hero-' + (heroFront === 'a' ? 'b' : 'a'));
       back.onload = function () { back.className = 'on'; front.className = ''; heroFront = heroFront === 'a' ? 'b' : 'a'; };
-      back.onerror = function () { front.className = ''; };
+      back.onerror = function () {
+        if (back.getAttribute('src') !== full) back.src = full;   // TMDB refused the smaller size
+        else front.className = '';
+      };
       if (src) back.src = src; else front.className = '';
     }
     document.getElementById('home').addEventListener('focusin', function (e) {
@@ -337,6 +400,24 @@
       '</div>' + (extra || '');
   }
 
+  // The film or series page stays in place behind the player. When you stop,
+  // it's shown again as it was and only the watch details are updated, a
+  // moment later, instead of the whole page being rebuilt while the TV is
+  // still releasing the video.
+  var livePage = null;          // { item, node, restore(message, playedEpisode, from) }
+  var RESTORE_REFRESH_MS = 1500;
+  function setPageMessage(message) {
+    var body = view.querySelector('.title-body');
+    if (!body) return;
+    var old = body.querySelector(':scope > p.error');
+    if (old) old.parentNode.removeChild(old);
+    if (message) {
+      var p = document.createElement('p'); p.className = 'error'; p.textContent = message;
+      var actions = document.getElementById('actions');
+      if (actions && actions.nextSibling) body.insertBefore(p, actions.nextSibling); else body.appendChild(p);
+    }
+  }
+
   async function renderMovie(item, message) {
     Nav.onBack(function () { goBackFromTitle(); });
     show(titleShell(item, message), 'screen-title');
@@ -346,14 +427,36 @@
     var choose = pickerButton(function () { renderPicker(item, null, function () { renderMovie(item); }); });
     actions.appendChild(choose);
     Nav.first();
-    var p = await Api.getProgress(profile.id, 'movie', item.titleId).catch(function () { return null; });
-    if (p && p.position > 30 && p.percentWatched < 95 && document.body.contains(main)) {
-      main.textContent = 'Resume from ' + fmtTime(p.position);
-      var over = document.createElement('button');
-      over.className = 'btn'; over.setAttribute('data-focus', ''); over.textContent = 'Play from the start';
-      over.addEventListener('click', function () { play(item, { resume: false, startAt: 0 }); });
-      actions.insertBefore(over, choose);
+    var over = null;
+    async function applyProgress() {
+      var p = await Api.getProgress(profile.id, 'movie', item.titleId).catch(function () { return null; });
+      if (!document.body.contains(main)) return;
+      var hadFocus = document.activeElement;
+      if (p && p.position > 30 && p.percentWatched < 95) {
+        main.textContent = 'Resume from ' + fmtTime(p.position);
+        if (!over) {
+          over = document.createElement('button');
+          over.className = 'btn'; over.setAttribute('data-focus', ''); over.textContent = 'Play from the start';
+          over.addEventListener('click', function () { play(item, { resume: false, startAt: 0 }); });
+          actions.insertBefore(over, choose);
+        }
+      } else {
+        main.textContent = 'Play';
+        if (over) {
+          if (hadFocus === over) Nav.focus(main);
+          over.parentNode.removeChild(over); over = null;
+        }
+      }
     }
+    livePage = {
+      item: item, node: main,
+      restore: function (message, played, from) {
+        setPageMessage(message);
+        Nav.focus(from && document.body.contains(from) ? from : main);
+        setTimeout(applyProgress, RESTORE_REFRESH_MS);
+      }
+    };
+    applyProgress();
   }
 
   // Series: seasons along one row, that season's episodes along the next.
@@ -425,7 +528,7 @@
         var img = ep.image && ep.image.url;
         var pct = partial[key];
         return '<button class="card ep" data-focus data-ep="' + i + '">' +
-          (img ? '<img src="' + esc(img) + '" alt="" loading="lazy" decoding="async" onerror="this.remove()">' : '') +
+          (img ? imgTag(img, 'w500', true) : '') +
           '<span class="card-fallback">' + esc('E' + ep.episodeNumber) + '</span>' +
           (watched[key] ? '<i class="seen">Watched</i>' : '') +
           '<span class="card-label"><em class="num">E' + ep.episodeNumber + '</em>' + esc(ep.name || 'Episode ' + ep.episodeNumber) + '</span>' +
@@ -441,6 +544,38 @@
         });
       });
       if (focusedEp != null) { var again = epsEl.querySelector('[data-ep="' + focusedEp + '"]'); if (again) again.focus({ preventScroll: true }); }
+    }
+
+    // Updates the Watched badges and progress bars on the cards already shown,
+    // without redrawing them (and their thumbnails).
+    function paintWatch() {
+      var se = seasons[shownSeason];
+      if (!se) return;
+      document.getElementById('episodes').querySelectorAll('.card.ep').forEach(function (c) {
+        var ep = se.episodes[+c.getAttribute('data-ep')];
+        if (!ep) return;
+        var key = ep.seasonNumber + ':' + ep.episodeNumber;
+        var seen = c.querySelector('i.seen');
+        if (watched[key] && !seen) {
+          seen = document.createElement('i'); seen.className = 'seen'; seen.textContent = 'Watched';
+          c.insertBefore(seen, c.querySelector('.card-label'));
+        } else if (!watched[key] && seen) seen.parentNode.removeChild(seen);
+        var bar = c.querySelector('i.bar'), pct = partial[key];
+        if (pct) {
+          if (!bar) { bar = document.createElement('i'); bar.className = 'bar'; bar.appendChild(document.createElement('b')); c.appendChild(bar); }
+          bar.firstChild.style.width = Math.min(100, pct) + '%';
+        } else if (bar) bar.parentNode.removeChild(bar);
+      });
+    }
+    function cardFor(ep) {
+      if (!ep) return null;
+      var idx = -1;
+      seasons.forEach(function (se, i) { if (se.number === ep.season) idx = i; });
+      if (idx < 0) return null;
+      if (idx !== shownSeason) showSeason(idx);
+      var epIdx = -1;
+      seasons[idx].episodes.forEach(function (e, i) { if (e.episodeNumber === ep.episode) epIdx = i; });
+      return document.getElementById('episodes').querySelector('[data-ep="' + epIdx + '"]');
     }
 
     var browse = view.querySelector('.series-browse');
@@ -475,10 +610,29 @@
       if (card) Nav.focus(card);
     }
 
+    livePage = {
+      item: item, node: main,
+      restore: function (message, played, from) {
+        setPageMessage(message);
+        var target = played ? cardFor(played) : null;
+        Nav.focus(target || (from && document.body.contains(from) ? from : main));
+        setTimeout(function () {
+          if (!document.body.contains(main)) return;
+          Promise.all([
+            Api.seriesWatchState(profile.id, item.titleId).catch(function () { return null; }),
+            Api.progressList(profile.id).catch(function () { return []; })
+          ]).then(function (w) { applyWatch(w, true); });
+        }, RESTORE_REFRESH_MS);
+      }
+    };
+
+    applyWatch(await watchP, false);
+
     // Watch history: mark watched and part-watched episodes, and update the
     // Play button to the real next episode.
-    var w = await watchP;
+    function applyWatch(w, again) {
     if (!document.body.contains(main)) return;
+    watched = {}; partial = {};
     var watch = w[0], progressAll = w[1] || [];
     if (watch && watch.watchedEpisodes) {
       Object.keys(watch.watchedEpisodes).forEach(function (k) {
@@ -499,13 +653,14 @@
       item.next = next;
       main.textContent = 'Play S' + next.season + ' E' + next.episode + (next.title ? ': ' + next.title : '');
       document.getElementById('title-meta').textContent = metaLine(item);
-      if (!focusEpisode && document.activeElement === main) { pickFor = next; labelChoose(); }
+      if ((again || !focusEpisode) && document.activeElement === main) { pickFor = next; labelChoose(); }
     }
-    // If you haven't moved yet, open the season with the next episode in it.
-    var untouched = document.activeElement === main && !focusEpisode;
+    // On first opening, if you haven't moved yet, open the season with the next episode in it.
+    var untouched = !again && document.activeElement === main && !focusEpisode;
     var nextIdx = seasons.indexOf(seasonFor(next));
     if (untouched && nextIdx !== shownSeason) showSeason(nextIdx);
-    else showSeason(shownSeason, true);
+    else paintWatch();
+    }
   }
 
   // Series details rarely change, so they're kept for the session and can be
@@ -559,6 +714,7 @@
 
   function play(item, opts) {
     var keepReturn = titleReturn;
+    var from = document.activeElement;
     Player.start({
       item: item, episode: opts.episode || null, profileId: profile.id, clientId: saved.clientId,
       resume: opts.resume, startAt: opts.startAt, manual: opts.manual || null,
@@ -566,7 +722,11 @@
       onExit: function (message, played) {
         homeStale = true;   // watch history changed: refresh quietly next time home shows
         titleReturn = keepReturn;
-        renderTitle(item, message, played && played.episode);
+        var page = livePage;
+        if (page && page.item === item && document.body.contains(page.node) && view.className === 'screen-title') {
+          Nav.onBack(function () { goBackFromTitle(); });
+          page.restore(message, played && played.episode, from);
+        } else renderTitle(item, message, played && played.episode);
       }
     });
   }
@@ -870,7 +1030,7 @@
     }
     box.innerHTML = searchState.results.map(function (item, i) {
       return '<button class="card poster" data-focus data-r="' + i + '" data-key="' + esc(item.key) + '">' +
-        (item.poster ? '<img src="' + esc(item.poster) + '" alt="" loading="lazy" decoding="async" onerror="this.remove()">' : '') +
+        (item.poster ? imgTag(item.poster, 'w342', true) : '') +
         '<span class="card-fallback">' + esc(item.name) + (item.year ? ' (' + item.year + ')' : '') + '</span></button>';
     }).join('');
     box.querySelectorAll('.card').forEach(function (c) {

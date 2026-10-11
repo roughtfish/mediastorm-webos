@@ -225,7 +225,11 @@
   #osd-title { font-size: 44px; font-weight: 600; }
   #osd-sub { color: #D5DBE5; font-size: 28px; margin-top: 4px; white-space: pre; }
   #osd-release { color: var(--muted); font-size: 20px; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .osd-bar { height: 8px; background: rgba(255,255,255,.2); border-radius: 4px; margin-top: 24px; }
+  .osd-bar { position: relative; height: 8px; background: rgba(255,255,255,.2); border-radius: 4px; margin-top: 24px; }
+  #osd-scrub { position: absolute; top: -12px; bottom: -12px; width: 8px; margin-left: -4px; border-radius: 4px;
+    background: #fff; box-shadow: 0 0 0 3px rgba(0,0,0,.35); display: none; }
+  #osd-scrub.on { display: block; }
+  #osd-time.scrub { color: #fff; }
   .osd-bar i { display: block; height: 100%; width: 0; background: var(--bolt); border-radius: 4px; }
   #osd-audio { color: #D5DBE5; font-size: 24px; margin-top: 6px; }
   #osd-source { color: #D5DBE5; font-size: 24px; margin-top: 4px; }
@@ -297,8 +301,8 @@
     <div id="osd-audio"></div>
     <div id="osd-source"></div>
     <div id="osd-release"></div>
-    <div class="osd-bar"><i id="osd-bar"></i></div>
-    <div class="osd-foot"><span id="osd-time"></span><span class="osd-hint">Down for audio and subtitles</span></div>
+    <div class="osd-bar"><i id="osd-bar"></i><b id="osd-scrub"></b></div>
+    <div class="osd-foot"><span id="osd-time"></span><span class="osd-hint">Left/right to move, OK to jump. Down for audio and subtitles</span></div>
   </div>
   <div id="subs"></div>
   <div id="upnext">

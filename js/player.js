@@ -83,7 +83,8 @@ var Player = (function () {
       return { ok: false, markBad: true, reason: 'This release contains a picture, not a video.' };
     }
     var info = { codec: codec, width: v.width, height: v.height, dv: v.hasDolbyVision, dvProfile: v.dolbyVisionProfile,
-                 hdr: v.hdrFormat || '', audio: (m.audioStreams || []).slice().sort(function (a, b) { return a.index - b.index; }) };
+                 hdr: v.hdrFormat || '', audio: (m.audioStreams || []).slice().sort(function (a, b) { return a.index - b.index; }),
+                 chapters: (m.chapters || []).map(function (ch) { return { title: ch.title || '', start: ch.start, end: ch.end || undefined }; }) };
     if (info.dv && dvProfileNumber(info.dvProfile) === 7) {
       return { ok: false, markBad: false, profile7: true, info: info,
                reason: 'This release is Dolby Vision profile 7, which LG TVs can\'t show as Dolby Vision.' };
@@ -354,6 +355,7 @@ var Player = (function () {
 
     var previous = token.current;
     token.current = c;
+    token.creditsAt = 0; token.creditsShown = false;
     if (!c.primary && token.prequeueId) {
       var rest = token.candidates.filter(function (x) { return !x.used && x.state !== 'bad'; })
         .map(function (x) { return x.result; }).filter(Boolean);
@@ -758,7 +760,11 @@ var Player = (function () {
   // ---------- player events ----------
   video.addEventListener('playing', function () {
     if (!s) return;
-    if (!s.playingSince) { var t = s; setTimeout(function () { if (s === t && t.playingSince) prepareBackup(t); }, 5000); }
+    if (!s.playingSince) {
+      var t = s;
+      setTimeout(function () { if (s === t && t.playingSince) prepareBackup(t); }, 5000);
+      findCredits(t, t.current);
+    }
     s.playingSince = s.playingSince || Date.now();
     clearTimeout(s.startTimer);
     clearTimeout(s.stallTimer);
@@ -784,7 +790,15 @@ var Player = (function () {
   video.addEventListener('timeupdate', function () {
     if (!video.duration) return;
     $('osd-bar').style.width = (100 * video.currentTime / video.duration) + '%';
-    $('osd-time').textContent = fmt(video.currentTime) + ' / ' + fmt(video.duration);
+    if (!scrub) $('osd-time').textContent = fmt(video.currentTime) + ' / ' + fmt(video.duration);
+    var t = s;
+    if (t && t.creditsAt && !t.creditsShown && !upNext && !scrub && !video.paused &&
+        video.currentTime >= t.creditsAt && video.currentTime < video.duration - 5) {
+      t.creditsShown = true;
+      Promise.resolve(t.nextEpisode(t.episode)).catch(function () { return null; }).then(function (ep) {
+        if (ep && s === t && !upNext) showUpNext(t, ep, true);
+      });
+    }
   });
   video.addEventListener('ended', function () {
     if (!s || s.ended) return;
@@ -800,14 +814,92 @@ var Player = (function () {
     });
   });
 
+  // ---------- credits ----------
+  // Finds where the credits start, so Up next can appear then rather than at
+  // the very end. In order:
+  //   1. the file's own chapters, if one in the second half is named as credits
+  //      (the same names mediastorm uses), with no server call needed;
+  //   2. IntroDB/SkipDB via mediastorm: the newer POST lookup, or the older GET
+  //      one on servers that don't have it yet (POST arrived in October 2026);
+  //   3. mediastorm's own credits detection.
+  var CREDITS_POLL_MS = 20000, CREDITS_POLL_LIMIT = 45;   // up to 15 minutes of checking
+  var OUTRO_TITLES = ['outro', 'credits', 'end credits', 'ending credits', 'closing credits',
+                      'closing titles', 'end titles', 'ed'];
+  function chapterTitle(t) {
+    var n = String(t || '').toLowerCase().trim().replace(/^\s*\d+\s*[-.:)]\s*/, '');
+    try { n = n.replace(new RegExp('[^\\p{L}\\p{N}]+', 'gu'), ' '); }
+    catch (e) { n = n.replace(/[^a-z0-9\u00c0-\uffff]+/g, ' '); }
+    return n.trim();
+  }
+  function creditsFromChapters(chapters, usable) {
+    for (var i = 0; i < (chapters || []).length; i++) {
+      var ch = chapters[i];
+      if (ch && OUTRO_TITLES.indexOf(chapterTitle(ch.title)) >= 0 && usable(Number(ch.start))) return Number(ch.start);
+    }
+    return null;
+  }
+  async function findCredits(token, c) {
+    if (!token || !c || !token.episode || !token.nextEpisode || c.creditsChecked) return;
+    c.creditsChecked = true;
+    var current = function () { return s === token && token.current === c; };
+    for (var w = 0; w < 20 && !(video.duration > 0 && isFinite(video.duration)); w++) {
+      await new Promise(function (ok) { setTimeout(ok, 500); });
+    }
+    if (!current() || !(video.duration > 0 && isFinite(video.duration))) return;
+    var dur = video.duration;
+    var usable = function (sec) { return typeof sec === 'number' && sec > dur * 0.5 && sec < dur - 10; };
+    var use = function (sec) { if (current() && usable(sec)) { token.creditsAt = sec; c.creditsAt = sec; } };
+    if (c.creditsAt) { use(c.creditsAt); return; }
+
+    var chapters = (c.info && c.info.chapters) || [];
+    var fromChapters = creditsFromChapters(chapters, usable);
+    if (fromChapters != null) { use(fromChapters); return; }
+
+    var q = { imdbId: token.item.imdb || '', season: token.episode.season, episode: token.episode.episode,
+              duration: dur, chapters: chapters };
+    var legacy = false;
+    try {
+      var r = await Api.skipSegments(q);
+      var outro = ((r && r.segments) || []).filter(function (x) { return x.type === 'outro'; })[0];
+      if (outro && usable(outro.start)) { use(outro.start); return; }
+    } catch (e) {
+      legacy = e && (e.status === 404 || e.status === 405);   // server too old for the POST lookup
+    }
+    if (legacy && q.imdbId && current()) {
+      try {
+        var g = await Api.skipSegmentsLegacy(q);
+        var ms = g && g.outro && g.outro.start_ms;
+        if (typeof ms === 'number' && usable(ms / 1000)) { use(ms / 1000); return; }
+      } catch (e) { /* fall through to detection */ }
+    }
+
+    if (!current() || !c.path) return;
+    try {
+      var started = await Api.detectCredits(c.path, dur);
+      if (!started || started.status === 'disabled') return;
+    } catch (e) { return; }
+    var pending = 0;
+    for (var i = 0; i < CREDITS_POLL_LIMIT; i++) {
+      await new Promise(function (ok) { setTimeout(ok, i === 0 ? 5000 : CREDITS_POLL_MS); });
+      if (!current() || token.creditsShown) return;
+      var st; try { st = await Api.creditsStatus(c.path); } catch (e) { continue; }
+      if (!st || st.status === 'disabled') return;
+      if (st.status === 'complete') { if (st.detected) use(st.creditsStartSec); return; }
+      if (st.status === 'pending' && ++pending >= 2) return;   // detection gave up without a result
+    }
+  }
+
   // ---------- up next ----------
   // When an episode ends, the next one starts after a short countdown.
   // OK starts it straight away; Back stops and returns to the series page.
-  function showUpNext(token, ep) {
+  // duringCredits: shown over the credits while the episode keeps playing.
+  // Back then hides it to carry on watching; at the very end it shows as usual.
+  function showUpNext(token, ep, duringCredits) {
     hideUpNext();
     $('osd').className = 'hide';
-    Subs.reset();
-    upNext = { token: token, episode: ep, left: UP_NEXT_SECONDS, timer: null };
+    if (!duringCredits) Subs.reset();
+    upNext = { token: token, episode: ep, left: UP_NEXT_SECONDS, timer: null, during: Boolean(duringCredits) };
+    $('upnext-hint').textContent = duringCredits ? 'OK to play now, Back to keep watching' : 'OK to play now, Back to stop';
     $('upnext-ep').textContent = episodeCode(ep) + (ep.title ? '  ' + ep.title : '');
     $('upnext-count').textContent = 'Starting in ' + upNext.left;
     $('upnext').className = 'on';
@@ -828,8 +920,10 @@ var Player = (function () {
     hideUpNext();
     if (!u || s !== u.token) return;
     var t = u.token;
+    if (u.during) sendProgress(t, true, true).catch(function () {});   // leaving in the credits counts as finished
+    // Up next always starts the next episode from the beginning, even if part of it was watched before.
     start({ item: t.item, episode: u.episode, profileId: t.profileId, clientId: t.clientId,
-            onExit: t.onExit, nextEpisode: t.nextEpisode, resume: true });
+            onExit: t.onExit, nextEpisode: t.nextEpisode, resume: false, startAt: 0 });
   }
   video.addEventListener('pause', function () { if (s) { showOsd(); sendProgress(s, false); } });
 
@@ -854,10 +948,75 @@ var Player = (function () {
     showOsd();
   }
 
-  function seek(delta) {
+  // ---------- seeking ----------
+  // Left/right (and rewind/fast-forward) move a marker along the progress bar
+  // while the video carries on; it jumps once, when you stop pressing for a
+  // moment or press OK. Each jump makes the TV fetch a new part of the file,
+  // so one jump is much smoother than one per press.
+  //
+  // Quick taps speed up by count: 10 seconds, then 30, then a minute, then two.
+  // Holding speeds up too where the TV sends repeats while a button is held.
+  // On some videos (seen on 4K) the TV holds a long press back and sends a
+  // single "repeat" press only on release, so the app can't follow the hold:
+  // that press is taken as a long press and jumps two minutes.
+  var SCRUB_COMMIT_MS = 650;       // pause in pressing before the jump happens
+  var SCRUB_BURST_MS = 550;        // a longer gap starts again at the small step
+  var SCRUB_REPEAT_MS = 110;       // held-key repeats faster than this are skipped, for a steady pace
+  var LONG_PRESS_JUMP = 120;       // seconds, for a held-back long press
+  var scrub = null;
+  var keyDown = {};                // keys pressed normally and not yet released
+
+  document.addEventListener('keyup', function (e) { delete keyDown[e.keyCode]; }, true);
+
+  function stepFor(base, taps, heldMs) {
+    var byTaps = taps <= 3 ? base : taps <= 6 ? 30 : taps <= 9 ? 60 : 120;
+    var byHold = heldMs < 1200 ? base : heldMs < 3000 ? 30 : heldMs < 6000 ? 60 : 120;
+    return Math.max(base, byTaps, byHold);
+  }
+  // key: the key code; repeat: the event's repeat flag.
+  function seek(delta, base, key, repeat) {
     if (!video.duration) return;
-    video.currentTime = Math.max(0, Math.min(video.duration - 2, video.currentTime + delta));
+    var now = Date.now(), dir = delta > 0 ? 1 : -1;
+    var heldBack = repeat && key != null && !keyDown[key];   // a repeat with no normal press before it
+    if (key != null && !repeat) keyDown[key] = true;
+    if (!scrub) scrub = { from: video.currentTime, target: video.currentTime, start: now, last: 0, taps: 0, dir: dir, timer: null };
+    else if (repeat && !heldBack && now - scrub.last < SCRUB_REPEAT_MS) return;
+    if (dir !== scrub.dir || now - scrub.last > SCRUB_BURST_MS) { scrub.start = now; scrub.taps = 0; }   // new direction or a fresh press
+    scrub.dir = dir;
+    scrub.last = now;
+    var step;
+    if (heldBack) step = LONG_PRESS_JUMP;
+    else {
+      if (!repeat) scrub.taps++;
+      step = stepFor(base || Math.abs(delta), scrub.taps, repeat ? now - scrub.start : 0);
+    }
+    scrub.target = Math.max(0, Math.min(video.duration - 2, scrub.target + dir * step));
+    drawScrub();
+    clearTimeout(scrub.timer);
+    scrub.timer = setTimeout(commitScrub, SCRUB_COMMIT_MS);
+  }
+  function drawScrub() {
+    var m = $('osd-scrub'), t = $('osd-time');
+    if (!scrub || !video.duration) { m.className = ''; t.className = ''; return; }
+    m.style.left = (100 * scrub.target / video.duration) + '%';
+    m.className = 'on';
+    var d = scrub.target - scrub.from;
+    t.textContent = fmt(scrub.target) + ' / ' + fmt(video.duration) + '   (' + (d >= 0 ? '+' : '−') + fmt(Math.abs(d)) + ')';
+    t.className = 'scrub';
     showOsd();
+  }
+  function commitScrub() {
+    if (!scrub) return;
+    var target = scrub.target;
+    endScrub();
+    if (Math.abs(target - video.currentTime) > 0.5) video.currentTime = target;
+    showOsd();
+  }
+  function endScrub() {
+    if (scrub) clearTimeout(scrub.timer);
+    scrub = null;
+    drawScrub();
+    if (video.duration) $('osd-time').textContent = fmt(video.currentTime) + ' / ' + fmt(video.duration);
   }
 
   // ---------- leaving ----------
@@ -867,6 +1026,7 @@ var Player = (function () {
   }
   function stop(silent) {
     var token = s;
+    endScrub();
     hideUpNext();
     teardown();
     if (token && token.current && !token.ended && !silent) sendProgress(token, true);
@@ -898,18 +1058,30 @@ var Player = (function () {
     if (prepOn && (k === KEY.BACK || k === KEY.ESC || k === KEY.BACKSPACE)) { exit(); return true; }
     if (prepOn) return true;
     if (!playerOn) return false;
-    if (upNext) {
+    if (upNext && upNext.during) {
+      if (k === KEY.ENTER || k === KEY.PLAY) { playUpNext(); return true; }
+      hideUpNext();   // anything else carries on watching the credits
+      if (k === KEY.BACK || k === KEY.ESC || k === KEY.BACKSPACE) { showOsd(); return true; }
+    } else if (upNext) {
       if (k === KEY.ENTER || k === KEY.PLAY || k === KEY.PLAYPAUSE) playUpNext();
       else if (k === KEY.BACK || k === KEY.ESC || k === KEY.BACKSPACE || k === KEY.STOP) exit();
       return true;
     }
     if (Audio.isOpen()) { Audio.key(k); return true; }
+    if (scrub) {
+      if (k === KEY.LEFT || k === KEY.RIGHT || k === KEY.RW || k === KEY.FF) { /* keep moving, below */ }
+      else if (k === KEY.ENTER) { commitScrub(); return true; }
+      else if (k === KEY.BACK || k === KEY.ESC || k === KEY.BACKSPACE || k === KEY.STOP) endScrub();   // stopping: drop the jump
+      else commitScrub();
+    }
     if (k === KEY.BACK || k === KEY.ESC || k === KEY.BACKSPACE || k === KEY.STOP) exit();
     else if (k === KEY.ENTER || k === KEY.PLAYPAUSE) { if (video.paused) video.play(); else video.pause(); showOsd(); }
     else if (k === KEY.PLAY) { video.play(); showOsd(); }
     else if (k === KEY.PAUSE) { video.pause(); showOsd(); }
-    else if (k === KEY.LEFT || k === KEY.RW) seek(-10);
-    else if (k === KEY.RIGHT || k === KEY.FF) seek(10);
+    else if (k === KEY.LEFT) seek(-10, 10, k, e.repeat);
+    else if (k === KEY.RIGHT) seek(10, 10, k, e.repeat);
+    else if (k === KEY.RW) seek(-30, 30, k, e.repeat);
+    else if (k === KEY.FF) seek(30, 30, k, e.repeat);
     else if (k === KEY.DOWN) Audio.open();
     else showOsd();
     return true;
@@ -917,6 +1089,7 @@ var Player = (function () {
 
   // Save position if the app is sent to the background or closed.
   document.addEventListener('visibilitychange', function () {
+    if (document.hidden && upNext && upNext.during) hideUpNext();
     if (document.hidden && upNext) { exit(); return; }   // don't start an episode nobody's watching
     if (document.hidden && s && s.current) { video.pause(); sendProgress(s, true); }
   });

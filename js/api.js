@@ -66,6 +66,8 @@ var Api = (function () {
     },
     // Free-text request answered by the AI provider set up in mediastorm,
     // returned as matched titles in the same shape as the Top 10.
+    // AI picks from the user's watch history and watchlist (asks mediastorm's AI provider each time).
+    aiRecommendations: function (userId) { return call('GET', '/recommendations?userId=' + enc(userId)); },
     aiSearch: function (query, userId) {
       return call('GET', '/recommendations/custom?q=' + enc(query) + '&userId=' + enc(userId));
     },
@@ -126,6 +128,18 @@ var Api = (function () {
     },
 
     probe: function (path) { return call('GET', '/video/metadata?path=' + enc(path)); },
+    // Where the credits are: IntroDB/SkipDB timings plus the file's chapters.
+    skipSegments: function (body) { return call('POST', '/video/segments', body); },
+    // Older mediastorm servers only answer GET here, in the intro/recap/outro shape (milliseconds).
+    skipSegmentsLegacy: function (q) {
+      return call('GET', '/video/segments?imdbId=' + enc(q.imdbId) + '&season=' + enc(q.season) +
+                         '&episode=' + enc(q.episode) + '&duration=' + enc(String(Math.round(q.duration))));
+    },
+    // mediastorm's own credits detection: start it, then check on it.
+    detectCredits: function (path, duration) {
+      return call('POST', '/video/credits/detect?path=' + enc(path) + '&duration=' + enc(String(Math.round(duration))));
+    },
+    creditsStatus: function (path) { return call('GET', '/video/credits/status?path=' + enc(path)); },
     directUrl: function (path) { return call('GET', '/video/direct-url?path=' + enc(path)); },
 
     // The untouched file through the backend. transmux=false matters: without

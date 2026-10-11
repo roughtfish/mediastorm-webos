@@ -11,8 +11,10 @@ Not affiliated with or supported by the mediastorm project. Tested on an LG C5
 ## Features
 
 - Profiles, including PIN-protected ones
-- Home screen with Continue watching, your watchlist and the Top 10, with a
-  backdrop that follows whatever you focus
+- Home screen with Continue watching, AI picks for you, your watchlist and the
+  Top 10, with a backdrop that follows whatever you focus. AI picks come from
+  the AI provider set up in mediastorm, based on your watch history and
+  watchlist, and refresh every few hours; without a provider the row is hidden
 - Search by title, plus AI search: describe what you want ("slow-burn sci-fi
   like Arrival") and the AI provider set up in mediastorm suggests matches
 - Film pages with resume, and series pages with seasons, episodes and
@@ -29,8 +31,14 @@ Not affiliated with or supported by the mediastorm project. Tested on an LG C5
   debrid), size, audio and language
 - Audio and subtitle menu, defaulting to your mediastorm profile's language
   and subtitle settings; text subtitles are drawn by the app over the video
-- Up next: when an episode ends, the next one starts after a 10-second
-  countdown (OK to play it now, Back to stop)
+- Up next: when the credits start, the next episode is offered with a
+  10-second countdown while the credits play (OK to play it now, Back to keep
+  watching). The credits time comes from the file's own chapters (one named
+  "Credits", "End Credits", "Outro" and so on), then IntroDB/SkipDB through
+  mediastorm (works with older and newer servers), then mediastorm's credits
+  detection if it's switched on. Without one, Up next appears when the
+  episode ends.
+  The next episode always starts from the beginning.
 - Watch progress synced back to mediastorm every 10 seconds
 - Debrid streams played straight from the debrid service where possible,
   sparing your server's bandwidth
@@ -76,8 +84,14 @@ Not affiliated with or supported by the mediastorm project. Tested on an LG C5
 - Arrows move, OK selects, Back goes back.
 - From the first row of the home screen, press Up to reach Search and the
   profile switcher.
-- In the player: OK pauses and plays, left and right skip 10 seconds, Down
-  opens the audio and subtitles menu, Back stops.
+- In the player: OK pauses and plays, Down opens the audio and subtitles
+  menu, Back stops.
+- To move through a video, press left and right (or rewind and fast
+  forward): a marker shows where you'll land, and the video jumps there when
+  you stop pressing or press OK. Quick taps make the steps bigger, from 10
+  seconds up to 2 minutes, and so does holding. On some videos (seen on 4K)
+  the TV doesn't pass on a held button until it's released; there, a long
+  press jumps 2 minutes.
 - On the search screen, the remote's number keys type digits. Speak opens LG's
   own keyboard on a text field, whose microphone key may be able to dictate an
   AI request.
