@@ -50,7 +50,8 @@ Not affiliated with or supported by the mediastorm project. Tested on an LG C5
   inside the app (OK pauses, left and right skip 10 seconds, Back closes).
   YouTube only plays embedded videos on pages from a real website, so the app
   shows a small trailer page hosted on GitHub Pages (`docs/trailer.html`; see
-  "Trailers" below). If that fails, the trailer opens in the TV's YouTube app
+  "Trailers" below). If that fails, it offers to open the trailer in the TV's
+  YouTube app
 - Long descriptions get a More button that shows the full text
 - A Home button at the top of film, series and person pages
 - Remove titles from Continue watching: hold OK on the card, or use the button

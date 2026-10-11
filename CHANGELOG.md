@@ -2,6 +2,13 @@
 
 What changed in each version of mediastorm for LG webOS, newest first.
 
+## 1.6.6 (2026-10-11)
+
+- If a trailer won't play in the app, it asks before opening the YouTube app,
+  instead of opening it straight away.
+- The trailer page asks YouTube for the highest quality it will give.
+  (Re-upload `docs/trailer.html`.)
+
 ## 1.6.5 (2026-10-11)
 
 - Trailers play inside the app again. YouTube refuses embedded videos that

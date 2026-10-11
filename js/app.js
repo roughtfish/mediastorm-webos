@@ -1036,10 +1036,14 @@
       Nav.onBack(prevBack);
       if (back && document.body.contains(back)) Nav.focus(back); else Nav.first();
     }
+    // Leaving the app is the user's call: ask first.
     function fallback() {
       if (done) return;
       close();
-      openInYouTubeApp(item, key);
+      choiceBox('This trailer won\'t play here', 'It can be opened in the TV\'s YouTube app instead. ' +
+        'Back or the home bar brings you back here afterwards.', [
+        { label: 'Open in YouTube', fn: function () { openInYouTubeApp(item, key); } }
+      ]);
     }
   }
 
