@@ -18,10 +18,17 @@
     --bad: #FF7B72;
     --pad: 96px;
   }
+  /* The background takes a subtle tint from the focused title's backdrop.
+     The three channels are registered so the colour fades rather than jumps. */
+  @property --tr { syntax: '<number>'; inherits: true; initial-value: 24; }
+  @property --tg { syntax: '<number>'; inherits: true; initial-value: 32; }
+  @property --tb { syntax: '<number>'; inherits: true; initial-value: 45; }
+  :root { --tr: 24; --tg: 32; --tb: 45; --bg-rgb: var(--tr) var(--tg) var(--tb); --bg: rgb(var(--bg-rgb));
+    transition: --tr .6s ease, --tg .6s ease, --tb .6s ease; }
   * { box-sizing: border-box; }
   html, body {
     margin: 0; width: 1920px; height: 1080px; overflow: hidden;
-    background: var(--night); color: var(--text);
+    background: var(--bg); color: var(--text);
     font-family: "LG Smart UI", "Museo Sans", "Helvetica Neue", Arial, sans-serif;
     font-size: 30px; line-height: 1.35;
   }
@@ -84,8 +91,8 @@
   .hero-art img.on { opacity: 1; }
   .hero-art::after {
     content: ""; position: absolute; inset: 0;
-    background: linear-gradient(90deg, var(--night) 0%, rgba(24,32,45,.75) 22%, rgba(24,32,45,0) 55%),
-                linear-gradient(0deg, var(--night) 0%, rgba(24,32,45,0) 45%);
+    background: linear-gradient(90deg, var(--bg) 0%, rgb(var(--bg-rgb) / .75) 22%, rgb(var(--bg-rgb) / 0) 55%),
+                linear-gradient(0deg, var(--bg) 0%, rgb(var(--bg-rgb) / 0) 45%);
   }
   .hero-text { position: absolute; left: var(--pad); top: 110px; width: 900px; }
   .hero-text h1 { font-size: 68px; line-height: 1.05; font-weight: 600; margin: 0 0 14px; }
@@ -119,8 +126,8 @@
   .title-art { position: absolute; inset: 0; }
   .title-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
   .title-art::after { content: ""; position: absolute; inset: 0;
-    background: linear-gradient(90deg, var(--night) 0%, rgba(24,32,45,.88) 35%, rgba(24,32,45,.2) 75%),
-                linear-gradient(0deg, var(--night) 0%, rgba(24,32,45,0) 40%); }
+    background: linear-gradient(90deg, var(--bg) 0%, rgb(var(--bg-rgb) / .88) 35%, rgb(var(--bg-rgb) / .2) 75%),
+                linear-gradient(0deg, var(--bg) 0%, rgb(var(--bg-rgb) / 0) 40%); }
   .title-body { position: absolute; left: var(--pad); top: 200px; width: 980px; }
   .title-body h1 { font-size: 80px; line-height: 1.04; font-weight: 600; margin: 0 0 18px; }
   .title-body .overview { -webkit-line-clamp: 6; margin-bottom: 48px; }
@@ -327,12 +334,22 @@
   .extras-hint { position: absolute; right: var(--pad); bottom: 22px; font-size: 22px; color: var(--muted);
     background: rgba(17,23,34,.8); padding: 6px 18px; border-radius: 20px; transition: opacity .2s; pointer-events: none; }
   #view.extras-on .extras-hint { opacity: 0; }
+  .btn.wl-btn.on { color: var(--good); }
+  .btn.more-btn { min-width: 0; padding-left: 30px; padding-right: 30px; font-weight: 600; }
   #trailer { position: fixed; inset: 0; z-index: 60; background: #000; }
   #trailer iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
   .trailer-keep { position: absolute; width: 1px; height: 1px; opacity: 0; }
   .trailer-hint { position: absolute; left: var(--pad); bottom: 36px; font-size: 22px; color: var(--muted);
     background: rgba(0,0,0,.6); padding: 6px 16px; border-radius: 16px; pointer-events: none; animation: fadeHint 1s 5s forwards; }
   @keyframes fadeHint { to { opacity: 0; } }
+  .release .why.good { color: var(--good); }
+  .about-name { font-size: 22px; word-break: break-all; color: var(--text); margin: 0 0 6px; }
+  .about-line { font-size: 22px; color: #D5DBE5; margin: 6px 0; }
+  .score-row { display: grid; grid-template-columns: 34% 1fr 28px; gap: 12px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 21px; }
+  .score-row small { color: var(--muted); font-size: 19px; }
+  .score-row b { text-align: right; }
+  .score-row.up b { color: var(--good); }
+  .score-row.down b { color: var(--bad); }
   #confirm { position: fixed; inset: 0; z-index: 45; background: rgba(10, 14, 22, .78); display: flex; align-items: center; justify-content: center; }
   #confirm .box { background: var(--panel); border: 2px solid var(--line); border-radius: 18px; padding: 48px 56px; max-width: 1000px; }
   #confirm h2 { font-size: 40px; font-weight: 600; margin: 0 0 12px; }

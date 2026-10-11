@@ -59,6 +59,15 @@ var Api = (function () {
 
     continueWatching: function (userId) { return call('GET', '/users/' + enc(userId) + '/history/continue'); },
     watchlist: function (userId) { return call('GET', '/users/' + enc(userId) + '/watchlist'); },
+    addToWatchlist: function (userId, body) { return call('POST', '/users/' + enc(userId) + '/watchlist', body); },
+    removeFromWatchlist: function (userId, mediaType, id) {
+      return call('DELETE', '/users/' + enc(userId) + '/watchlist/' + enc(mediaType) + '/' + enc(id));
+    },
+    // New and upcoming episodes (and film releases) for shows you watch or follow.
+    calendar: function (userId, days, recentDays) {
+      var tz = ''; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { /* older engine */ }
+      return call('GET', '/users/' + enc(userId) + '/calendar?days=' + enc(days) + '&recentDays=' + enc(recentDays) + (tz ? '&tz=' + enc(tz) : ''));
+    },
     hideContinue: function (userId, seriesId) {
       return call('POST', '/users/' + enc(userId) + '/history/continue/hide', { seriesId: seriesId });
     },
@@ -88,6 +97,15 @@ var Api = (function () {
       if (item.tmdb) q += '&tmdbId=' + enc(item.tmdb);
       if (item.imdb) q += '&imdbId=' + enc(item.imdb);
       return call('GET', '/metadata/movies/details?' + q + '&userId=' + enc(userId));
+    },
+    similar: function (type, tmdbId, userId) {
+      return call('GET', '/metadata/similar?type=' + enc(type) + '&tmdbId=' + enc(tmdbId) + '&userId=' + enc(userId));
+    },
+    // Marking watched or unwatched: one update, or several at once.
+    markWatched: function (userId, update) { return call('POST', '/users/' + enc(userId) + '/history/watched', update); },
+    markWatchedBulk: function (userId, updates) { return call('POST', '/users/' + enc(userId) + '/history/watched/bulk', updates); },
+    watchedItem: function (userId, mediaType, id) {
+      return call('GET', '/users/' + enc(userId) + '/history/watched/' + enc(mediaType) + '/' + enc(id));
     },
     personDetails: function (id, userId) {
       return call('GET', '/metadata/person?id=' + enc(id) + '&userId=' + enc(userId));
@@ -125,6 +143,15 @@ var Api = (function () {
         (opts.imdbId ? '&imdbId=' + enc(opts.imdbId) : '') + (opts.titleId ? '&titleId=' + enc(opts.titleId) : '') +
         (opts.year ? '&year=' + enc(opts.year) : '');
       return call('GET', '/indexers/search?' + q);
+    },
+    // The same search with mediastorm's scoring breakdown for each release.
+    // Older servers don't have it; callers fall back to releases().
+    scoredReleases: function (opts) {
+      var q = 'q=' + enc(opts.query) + '&mediaType=' + enc(opts.mediaType) + '&limit=50' +
+        '&userId=' + enc(opts.userId) + (opts.clientId ? '&clientId=' + enc(opts.clientId) : '') +
+        (opts.imdbId ? '&imdbId=' + enc(opts.imdbId) : '') + (opts.titleId ? '&titleId=' + enc(opts.titleId) : '') +
+        (opts.year ? '&year=' + enc(opts.year) : '');
+      return call('GET', '/indexers/search-test?' + q);
     },
     userSettings: function (userId) { return call('GET', '/users/' + enc(userId) + '/settings'); },
     markBad: function (body) { return call('POST', '/playback/bad-streams', body); },

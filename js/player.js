@@ -134,6 +134,7 @@ var Player = (function () {
     c.prep.catch(function () {});
     return c.prep;
 
+    function noteFor(cand, text) { token.notes.push(text); cand.why = text; }
     async function check() {
       if (!c.path) {
         try {
@@ -143,15 +144,15 @@ var Player = (function () {
           c.healthStatus = r && r.healthStatus;
         } catch (e) {
           if (e.message === 'cancelled') throw e;
-          token.notes.push(failureReason(c, e));   // marked bad, refused, or unavailable
+          noteFor(c, failureReason(c, e));   // marked bad, refused, or unavailable
           c.state = 'bad'; return c;
         }
-        if (!c.path) { token.notes.push('mediastorm couldn\'t prepare ' + (c.name || 'that release') + '.'); c.state = 'bad'; return c; }
+        if (!c.path) { noteFor(c, 'mediastorm couldn\'t prepare ' + (c.name || 'that release') + '.'); c.state = 'bad'; return c; }
       }
       var v = await vet(c.path);
       if (s !== token) throw new Error('cancelled');
       if (v.ok) { c.info = v.info; c.state = 'ok'; return c; }
-      token.notes.push(v.reason);
+      noteFor(c, v.reason);
       if (v.markBad) {
         Api.markBad({ releaseName: c.name, serviceType: c.serviceType, sourcePath: c.path, reason: 'webos:not-a-video' })
           .catch(function () {});
@@ -346,6 +347,7 @@ var Player = (function () {
   // A release picked by hand skips mediastorm's prequeue, so the profile's
   // audio and subtitle preferences are read here instead.
   async function startManual(token, manual) {
+    token.manualPick = true;
     token.wantTrackIndex = -1;
     token.wantSubIndex = -1;
     var settings = await Api.userSettings(token.profileId).catch(function () { return null; });
@@ -384,6 +386,10 @@ var Player = (function () {
     if (s !== token) return;
 
     var previous = token.current;
+    if (previous && reason && previous !== c) {
+      previous.why = previous.why || String(reason).replace(/\.$/, '').toLowerCase();
+      c.switchedFrom = { name: shortName(previous.name), why: String(reason).replace(/\.$/, '') };
+    }
     token.current = c;
     token.creditsAt = 0; token.creditsShown = false;
     if (!c.primary && token.prequeueId) {
@@ -683,8 +689,12 @@ var Player = (function () {
         else bitmaps++;
       });
       if (bitmaps) menu.push({ kind: 'note', title: bitmaps + (bitmaps === 1 ? ' picture-based track' : ' picture-based tracks') + ' can\'t be shown here.' });
+      if (s && s.current) {
+        menu.push({ kind: 'head', title: 'This release' });
+        menu.push({ kind: 'about', title: 'About this release', detail: 'why it was chosen' });
+      }
     }
-    function selectable(k) { return menu[k] && (menu[k].kind === 'audio' || menu[k].kind === 'sub'); }
+    function selectable(k) { return menu[k] && (menu[k].kind === 'audio' || menu[k].kind === 'sub' || menu[k].kind === 'about'); }
     function render() {
       var curA = enabledIndex(), curS = Subs.selected();
       $('audio-list').innerHTML = menu.map(function (r, k) {
@@ -711,12 +721,66 @@ var Player = (function () {
       $('osd').className = '';
       clearTimeout(osdTimer);
     }
-    function closeMenu() { open = false; $('audio-menu').className = ''; showOsd(); }
+    function closeMenu() { open = false; aboutOpen = false; $('audio-menu').className = ''; showOsd(); }
+
+    // About this release: where it sat in mediastorm's ranking, what the app
+    // skipped on the way, and mediastorm's scoring breakdown (fetched now).
+    var aboutOpen = false, aboutSeq = 0;
+    function ordinal(n) { var t = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (t[(v - 20) % 10] || t[v] || t[0]); }
+    function showAbout() {
+      var t = s, c = t && t.current;
+      if (!c) return;
+      aboutOpen = true;
+      var idx = t.candidates.indexOf(c), before = t.candidates.slice(0, Math.max(0, idx));
+      var lines = [];
+      if (t.manualPick) lines.push('You picked this release yourself, in Choose release.');
+      else if (idx <= 0) lines.push('mediastorm\'s first choice for your settings.');
+      else {
+        lines.push('mediastorm\'s ' + ordinal(idx + 1) + ' choice. The ones ranked above it:');
+        before.forEach(function (b, i) {
+          var why = b.state === 'p7' ? 'Dolby Vision profile 7, which LG TVs can\'t show as Dolby Vision'
+            : b.why || (b.state === 'bad' ? 'didn\'t work here' : 'not tried');
+          why = why.replace(/\.$/, '');
+          lines.push(ordinal(i + 1) + ': ' + shortName(b.name) + ' (' + why.charAt(0).toLowerCase() + why.slice(1) + ')');
+        });
+      }
+      if (c.switchedFrom) lines.push('Switched to this one during playback. The one before (' + c.switchedFrom.name + '): ' + c.switchedFrom.why + '.');
+      $('audio-list').innerHTML = '<h3>About this release</h3>' +
+        '<p class="about-name">' + escapeHtml(c.name || 'Unnamed release') + '</p>' +
+        '<p class="menu-note">' + escapeHtml(sourceLabel(c.path, video.currentSrc || '')) + '</p>' +
+        lines.map(function (l) { return '<p class="about-line">' + escapeHtml(l) + '</p>'; }).join('') +
+        '<h3>Why mediastorm ranks it here</h3><div id="about-scores"><p class="menu-note">Checking with mediastorm…</p></div>' +
+        '<p class="menu-note">Back to return</p>';
+      var my = ++aboutSeq;
+      var q = t.item.name + (t.episode ? ' S' + pad2(t.episode.season) + 'E' + pad2(t.episode.episode) : '');
+      Api.scoredReleases({ query: q, mediaType: t.item.kind === 'movie' ? 'movie' : 'series', userId: t.profileId,
+                           clientId: t.clientId, imdbId: t.item.imdb, titleId: t.item.titleId, year: t.item.year })
+        .then(function (res) {
+          if (my !== aboutSeq || !aboutOpen) return;
+          var mine = (res || []).filter(function (x) { return x && x.title === c.name; })[0];
+          var box = $('about-scores');
+          if (!mine) { box.innerHTML = '<p class="menu-note">This release wasn\'t in a fresh search, so there\'s no breakdown for it right now.</p>'; return; }
+          var items = (mine.scoreBreakdown || []).filter(function (x) { return x && (x.reason || x.criterion); });
+          box.innerHTML = items.length ? items.map(function (x) {
+            var sign = x.points > 0 ? '+' : x.points < 0 ? '−' : '';
+            return '<div class="score-row' + (x.points > 0 ? ' up' : x.points < 0 ? ' down' : '') + '"><span>' + escapeHtml(x.criterion || '') +
+              '</span><small>' + escapeHtml(x.reason || '') + '</small><b>' + sign + '</b></div>';
+          }).join('') : '<p class="menu-note">mediastorm didn\'t give a breakdown for this release.</p>';
+        }, function () {
+          if (my !== aboutSeq || !aboutOpen) return;
+          $('about-scores').innerHTML = '<p class="menu-note">mediastorm couldn\'t give a breakdown right now.</p>';
+        });
+    }
 
     function step(dir) {
       for (var k = focusIdx + dir; k >= 0 && k < menu.length; k += dir) if (selectable(k)) { focusIdx = k; return; }
     }
     function key(k) {
+      if (aboutOpen) {   // the About panel: Back returns to the menu, Up and Down scroll
+        if (k === KEY.UP || k === KEY.DOWN) { $('audio-list').scrollTop += (k === KEY.DOWN ? 160 : -160); return; }
+        if (k === KEY.BACK || k === KEY.ESC || k === KEY.BACKSPACE || k === KEY.LEFT) { aboutOpen = false; aboutSeq++; render(); return; }
+        closeMenu(); return;
+      }
       if (k === KEY.UP) { step(-1); render(); }
       else if (k === KEY.DOWN) { step(1); render(); }
       else if (k === KEY.ENTER) {
@@ -724,6 +788,8 @@ var Player = (function () {
         if (r && r.kind === 'audio') {
           var row = rows.filter(function (x) { return x.i === r.i; })[0];
           if (apply(r.i, true) && s && row) s.prefLang = row.language || s.prefLang;
+        } else if (r && r.kind === 'about') {
+          showAbout(); return;
         } else if (r && r.kind === 'sub') {
           Subs.choose(r.i);
           if (s) {
@@ -736,7 +802,7 @@ var Player = (function () {
       else if (k === KEY.BACK || k === KEY.ESC || k === KEY.BACKSPACE || k === KEY.LEFT || k === KEY.RIGHT) closeMenu();
     }
 
-    return { autoSelect: autoSelect, open: openMenu, close: function () { open = false; $('audio-menu').className = ''; },
+    return { autoSelect: autoSelect, open: openMenu, close: function () { open = false; aboutOpen = false; $('audio-menu').className = ''; },
              isOpen: function () { return open; }, key: key, sameLang: sameLang, langName: langName };
   })();
 

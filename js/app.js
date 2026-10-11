@@ -61,6 +61,80 @@
       try { localStorage.setItem(aiCacheKey(id), JSON.stringify({ items: [], at: Date.now() })); } catch (e) { /* full: skip */ }
     }).then(function () { aiFetching[id] = false; });
   }
+  // New episodes and Coming soon: from mediastorm's calendar (shows on your
+  // watchlist or in your history), fetched behind the home screen and kept for
+  // three hours.
+  var CAL_TTL = 3 * 3600 * 1000, CAL_RETRY = 10 * 60 * 1000, calFetching = {};
+  function calKey(id) { return STORE + '-cal-' + id; }
+  function readCal(id, any) {
+    try {
+      var c = JSON.parse(localStorage.getItem(calKey(id)));
+      if (!c || !Array.isArray(c.items)) return null;
+      return any || Date.now() - c.at < (c.items.length ? CAL_TTL : CAL_RETRY) ? c : null;
+    } catch (e) { return null; }
+  }
+  function fetchCalendar(id) {
+    if (calFetching[id]) return;
+    calFetching[id] = true;
+    Api.calendar(id, 14, 7).then(function (r) {
+      var items = ((r && r.items) || []).filter(function (it) {
+        return it && (it.source === 'watchlist' || it.source === 'history') && it.airDate;
+      });
+      try { localStorage.setItem(calKey(id), JSON.stringify({ items: items, at: Date.now() })); } catch (e) { /* full */ }
+      if (items.length && profile && profile.id === id) {
+        homeStale = true;
+        if (homeRefreshing) setTimeout(function () { if (profile && profile.id === id) refreshHomeInBackground(); }, 3000);
+        else refreshHomeInBackground();
+      }
+    }, function () {
+      try { localStorage.setItem(calKey(id), JSON.stringify({ items: [], at: Date.now() })); } catch (e) { /* full */ }
+    }).then(function () { calFetching[id] = false; });
+  }
+  function localDate(d) {
+    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+  }
+  function dayLabel(iso) {
+    var today = new Date(), d = new Date(iso + 'T12:00:00');
+    var diff = Math.round((new Date(iso + 'T12:00:00') - new Date(localDate(today) + 'T12:00:00')) / 86400000);
+    if (diff === 0) return 'Today';
+    if (diff === -1) return 'Yesterday';
+    if (diff === 1) return 'Tomorrow';
+    var days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return days[d.getDay()] + ' ' + d.getDate() + ' ' + months[d.getMonth()];
+  }
+  function fromCalendar(it) {
+    var x = it.externalIds || {}, movie = it.mediaType === 'movie';
+    var id = movie ? (x.tmdb ? 'tmdb:movie:' + x.tmdb : x.tvdb ? 'tvdb:movie:' + x.tvdb : '')
+                   : (x.tvdb ? 'tvdb:series:' + x.tvdb : x.tmdb ? 'tmdb:tv:' + x.tmdb : '');
+    return {
+      key: 'cal:' + id + ':' + (it.seasonNumber || 0) + ':' + (it.episodeNumber || 0),
+      kind: movie ? 'movie' : 'series', titleId: id, name: it.title, year: it.year, overview: it.overview || '',
+      poster: it.posterUrl || it.textPosterUrl, backdrop: it.backdropUrl || (it.backdropUrls && it.backdropUrls[0]) || it.posterUrl,
+      imdb: x.imdb || '', tmdb: x.tmdb || '', tvdb: x.tvdb || '',
+      next: movie ? null : { season: it.seasonNumber, episode: it.episodeNumber, title: it.episodeTitle || '' },
+      note: dayLabel(it.airDate), focusEp: movie ? null : { season: it.seasonNumber, episode: it.episodeNumber }
+    };
+  }
+  function calendarRows(id) {
+    var cal = readCal(id, true);
+    if (!cal || !cal.items.length) return [];
+    var today = localDate(new Date()), seen = {};
+    var usable = cal.items.map(function (it) { return { it: it, item: fromCalendar(it) }; })
+      .filter(function (x) { return x.item.titleId; });
+    var fresh = usable.filter(function (x) { return x.it.mediaType !== 'movie' && x.it.airDate <= today; })
+      .sort(function (a, b) { return a.it.airDate < b.it.airDate ? 1 : -1; })
+      .filter(function (x) { if (seen[x.item.titleId]) return false; return (seen[x.item.titleId] = true); })   // one card per show
+      .map(function (x) { return x.item; });
+    var later = usable.filter(function (x) { return x.it.airDate > today; })
+      .sort(function (a, b) { return a.it.airDate < b.it.airDate ? -1 : 1; })
+      .map(function (x) { return x.item; }).slice(0, 20);
+    var rows = [];
+    if (fresh.length) rows.push({ title: 'New episodes', wide: true, items: fresh.slice(0, 20) });
+    if (later.length) rows.push({ title: 'Coming soon', wide: true, items: later });
+    return rows;
+  }
+
   var lastHomeKey = null;     // card to refocus when coming back home
 
   // ---------- helpers ----------
@@ -215,7 +289,67 @@
     var h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60);
     return h ? h + 'h ' + m + 'm' : m + 'm';
   }
+  // ---------- background tint ----------
+  // A subtle wash of the title's own colour behind the home screen and title
+  // pages: a tiny copy of the backdrop is averaged (leaving out near-black,
+  // near-white and grey pixels), then darkened and softened so text stays
+  // easy to read. If an image can't be read, the usual colour stays.
+  var BASE = [24, 32, 45], tintSeq = 0, tintCache = {};
+  function setTintRgb(c) {
+    var st = document.documentElement.style;
+    st.setProperty('--tr', c[0]); st.setProperty('--tg', c[1]); st.setProperty('--tb', c[2]);
+  }
+  function clearTint() { tintSeq++; setTintRgb(BASE); }
+  function tintFromImage(img) {
+    var w = 24, h = 14, cv = document.createElement('canvas');
+    cv.width = w; cv.height = h;
+    var cx = cv.getContext('2d');
+    cx.drawImage(img, 0, 0, w, h);
+    var d = cx.getImageData(0, 0, w, h).data, R = 0, G = 0, B = 0, W = 0;
+    for (var i = 0; i < d.length; i += 4) {
+      var r = d[i] / 255, g = d[i + 1] / 255, b = d[i + 2] / 255;
+      var mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2;
+      if (l < 0.08 || l > 0.92) continue;
+      var sat = mx === mn ? 0 : (mx - mn) / (1 - Math.abs(2 * l - 1));
+      var wt = 0.05 + sat * sat;   // colourful pixels count for more than grey ones
+      R += r * wt; G += g * wt; B += b * wt; W += wt;
+    }
+    if (!W) return BASE;
+    R /= W; G /= W; B /= W;
+    // to HSL, then a dark, soft version of it
+    var mx2 = Math.max(R, G, B), mn2 = Math.min(R, G, B), hue = 0, s2 = 0, l2 = (mx2 + mn2) / 2;
+    if (mx2 !== mn2) {
+      var dd = mx2 - mn2;
+      s2 = dd / (1 - Math.abs(2 * l2 - 1));
+      hue = mx2 === R ? ((G - B) / dd) % 6 : mx2 === G ? (B - R) / dd + 2 : (R - G) / dd + 4;
+      hue *= 60; if (hue < 0) hue += 360;
+    }
+    s2 = Math.min(s2, 0.55) * 0.8; var L = 0.15;
+    var C = (1 - Math.abs(2 * L - 1)) * s2, X = C * (1 - Math.abs((hue / 60) % 2 - 1)), m = L - C / 2, rgb;
+    if (hue < 60) rgb = [C, X, 0]; else if (hue < 120) rgb = [X, C, 0]; else if (hue < 180) rgb = [0, C, X];
+    else if (hue < 240) rgb = [0, X, C]; else if (hue < 300) rgb = [X, 0, C]; else rgb = [C, 0, X];
+    // blend with the usual colour, so it's a tint rather than a repaint
+    return rgb.map(function (v, k) { return Math.round(((v + m) * 255) * 0.6 + BASE[k] * 0.4); });
+  }
+  function setTint(url) {
+    var my = ++tintSeq;
+    if (!url) { setTintRgb(BASE); return; }
+    var small = tmdbSize(url, 'w300');
+    if (tintCache[small]) { setTintRgb(tintCache[small]); return; }
+    var img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = function () {
+      var c = BASE;
+      try { c = tintFromImage(img); } catch (e) { c = BASE; }   // the image's server didn't allow reading it
+      tintCache[small] = c;
+      if (my === tintSeq) setTintRgb(c);
+    };
+    img.onerror = function () { tintCache[small] = BASE; if (my === tintSeq) setTintRgb(BASE); };
+    img.src = small;
+  }
+
   function show(html, scopeClass) {
+    if (scopeClass !== 'screen-home' && scopeClass !== 'screen-title') clearTint();
     view.className = scopeClass || '';
     view.innerHTML = html;
     Nav.setScope(view);
@@ -262,19 +396,31 @@
     var h = hold; hold = null;
     return h;
   }
+  // What holding OK on a card does: Continue watching cards offer removal,
+  // episode cards offer marking watched. Anything else just opens as normal.
+  function holdActionFor(a) {
+    if (!a || !a.classList.contains('card')) return null;
+    if (view.className === 'screen-home' && a.classList.contains('wide')) {
+      var item = homeItems[+a.getAttribute('data-i')];
+      if (!item || String(item.key).indexOf('cw:') !== 0) return null;
+      return function () { askRemoveContinue(item, function () { renderHome(); }); };
+    }
+    if (view.classList.contains('screen-title') && a.classList.contains('ep') && a.onhold) return a.onhold;
+    return null;
+  }
   function holdFired() {
     var h = endHold();
     if (!h) return;
-    var item = homeItems[+h.card.getAttribute('data-i')];
-    if (!item) return;
+    var act = holdActionFor(h.card);
+    if (!act) return;
     swallowUntilQuiet();
-    askRemoveContinue(item, function () { renderHome(); });
+    act();
   }
   document.addEventListener('keydown', function (e) {
     if (e.keyCode === 13 && swallowOK) { e.preventDefault(); e.stopImmediatePropagation(); swallowUntilQuiet(); return; }
-    if (e.keyCode !== 13 || Player.active || view.className !== 'screen-home' || document.getElementById('confirm')) return;
+    if (e.keyCode !== 13 || Player.active || document.getElementById('confirm') || document.getElementById('trailer')) return;
     var a = document.activeElement;
-    if (!a || !a.classList.contains('card') || !a.classList.contains('wide')) return;
+    if (!holdActionFor(a)) return;
     e.preventDefault(); e.stopImmediatePropagation();
     if (hold && hold.card === a) {                  // still being held
       clearTimeout(hold.gapTimer);
@@ -411,7 +557,7 @@
     document.getElementById('signout').addEventListener('click', function () {
       Api.logout().catch(function () {});
       (saved.profiles || []).forEach(function (p) {
-        try { localStorage.removeItem(STORE + '-home-' + p.id); localStorage.removeItem(aiCacheKey(p.id)); } catch (e) { /* ignore */ }
+        try { localStorage.removeItem(STORE + '-home-' + p.id); localStorage.removeItem(aiCacheKey(p.id)); localStorage.removeItem(calKey(p.id)); } catch (e) { /* ignore */ }
       });
       saved.token = ''; saved.profileId = ''; saved.profiles = []; save();
       detailsCache = {};
@@ -459,6 +605,9 @@
     }
     var rows = [];
     if (Array.isArray(results[0]) && results[0].length) rows.push({ title: 'Continue watching', wide: true, items: results[0].map(fromContinue) });
+    if (!readCal(uid)) fetchCalendar(uid);
+    var cal = calendarRows(uid);
+    if (cal[0] && cal[0].title === 'New episodes') rows.push(cal.shift());
     if (!readAiCache(uid)) fetchAiRow(uid);
     var ai = readAiCacheAny(uid);
     if (ai && ai.items.length) {
@@ -472,6 +621,7 @@
       } else rows.push({ title: 'AI picks for you', items: ai.items });
     }
     if (Array.isArray(results[1]) && results[1].length) rows.push({ title: 'Your watchlist', items: results[1].map(fromWatchlist) });
+    if (cal.length) rows.push(cal.shift());   // Coming soon, after your watchlist
     var top = results[2] && results[2].items;
     if (Array.isArray(top) && top.length) rows.push({ title: 'Top 10 today', items: top.map(function (t) { return fromTitle(t.title); }) });
     var failed = results.filter(function (r) { return r && r.error; }).length;
@@ -527,7 +677,8 @@
           var img = row.wide ? (item.backdrop || item.poster) : (item.poster || item.backdrop);
           var bar = row.wide && item.percent > 1 ? '<i class="bar"><b style="width:' + Math.min(100, item.percent) + '%"></b></i>' : '';
           var label = row.wide
-            ? '<span class="card-label">' + esc(item.name) + (item.next ? '<em>S' + item.next.season + ' E' + item.next.episode + '</em>' : '') + '</span>'
+            ? '<span class="card-label">' + esc(item.name) + (item.next ? '<em>S' + item.next.season + ' E' + item.next.episode +
+                (item.note ? ' · ' + esc(item.note) : '') + '</em>' : (item.note ? '<em>' + esc(item.note) + '</em>' : '')) + '</span>'
             : '';
           return '<button class="card ' + (row.wide ? 'wide' : 'poster') + '" data-focus data-i="' + i + '" data-key="' + esc(item.key) + '">' +
             (img ? imgTag(img, row.wide ? 'w780' : 'w342', true) : '') +
@@ -554,6 +705,7 @@
       document.getElementById('hero-meta').textContent = metaLine(item);
       document.getElementById('hero-overview').textContent = item.overview;
       var full = item.backdrop || item.poster || '';
+      setTint(full);
       var src = tmdbSize(full, 'w1280');
       var front = document.getElementById('hero-' + heroFront);
       if (front.getAttribute('src') === src) return;
@@ -578,7 +730,11 @@
       }, 350);
     });
     view.querySelectorAll('.card').forEach(function (c) {
-      c.addEventListener('click', function () { openTitle(all[+c.getAttribute('data-i')], null); });
+      c.addEventListener('click', function () {
+        var it = all[+c.getAttribute('data-i')];
+        if (it.focusEp) { titleReturn = null; renderTitle(it, null, it.focusEp); }
+        else openTitle(it, null);
+      });
     });
 
     var again = lastHomeKey && view.querySelector('.card[data-key="' + (window.CSS && CSS.escape ? CSS.escape(lastHomeKey) : lastHomeKey) + '"]');
@@ -599,6 +755,7 @@
   });
 
   function titleShell(item, message, extra) {
+    setTint(item.backdrop || item.poster || '');
     return HOME_PILL + '<div class="title-art">' + (item.backdrop ? '<img src="' + esc(item.backdrop) + '" alt="" onerror="this.remove()">' : '') + '</div>' +
       '<div class="title-body' + (extra ? ' compact' : ' film') + '">' +
         '<h1>' + esc(item.name) + '</h1>' +
@@ -689,6 +846,64 @@
   function addRatings(title) {
     var el = document.getElementById('title-ratings');
     if (el) el.innerHTML = ratingsHtml(title);
+  }
+
+  // ---------- watchlist ----------
+  // + Watchlist on film and series pages. The list is the profile's own in
+  // mediastorm, so it's the same one your other apps show.
+  var wlCache = null;   // { at, list }
+  function watchlistNow(fresh) {
+    if (!fresh && wlCache && Date.now() - wlCache.at < 60000) return Promise.resolve(wlCache.list);
+    return Api.watchlist(profile.id).then(function (l) { wlCache = { at: Date.now(), list: Array.isArray(l) ? l : [] }; return wlCache.list; },
+      function () { return (wlCache && wlCache.list) || []; });
+  }
+  function wlEntryFor(item, list) {
+    return list.filter(function (w) {
+      if (!w) return false;
+      if (w.id === item.titleId) return true;
+      var x = w.externalIds || {};
+      if ((w.mediaType === 'movie') !== (item.kind === 'movie')) return false;
+      return (item.tvdb && x.tvdb === String(item.tvdb)) || (item.tmdb && x.tmdb === String(item.tmdb)) || (item.imdb && x.imdb === item.imdb);
+    })[0] || null;
+  }
+  async function addWatchlistButton(item, title) {
+    var actions = document.getElementById('actions');
+    if (!actions || actions.querySelector('.wl-btn')) return;
+    var b = document.createElement('button');
+    b.className = 'btn wl-btn'; b.setAttribute('data-focus', ''); b.textContent = '+ Watchlist';
+    var after = actions.querySelector('.trailer-btn') || actions.querySelector('.btn:not(.primary):not(.quiet)');
+    actions.insertBefore(b, after ? after.nextSibling : null);
+    var entry = wlEntryFor(item, await watchlistNow());
+    function draw() { b.textContent = entry ? '✓ On watchlist' : '+ Watchlist'; b.classList.toggle('on', !!entry); }
+    draw();
+    var busy = false;
+    b.addEventListener('click', async function () {
+      if (busy) return;
+      busy = true;
+      var mt = item.kind === 'movie' ? 'movie' : 'series';
+      try {
+        if (entry) {
+          await Api.removeFromWatchlist(profile.id, entry.mediaType || mt, entry.id || item.titleId);
+          entry = null;
+          toast('Removed ' + item.name + ' from your watchlist.');
+        } else {
+          var t = title || {}, x = {};
+          if (item.imdb) x.imdb = String(item.imdb);
+          if (item.tmdb) x.tmdb = String(item.tmdb);
+          if (item.tvdb) x.tvdb = String(item.tvdb);
+          var body = { id: item.titleId, mediaType: mt, name: item.name, year: +item.year || 0, overview: item.overview || '',
+                       posterUrl: item.poster || '', backdropUrl: item.backdrop || '', externalIds: x,
+                       genres: t.genres || [], runtimeMinutes: t.runtimeMinutes || 0 };
+          var saved2 = await Api.addToWatchlist(profile.id, body);
+          entry = (saved2 && saved2.id) ? saved2 : body;
+          toast('Added ' + item.name + ' to your watchlist.');
+        }
+        wlCache = null;
+        homeStale = true;
+        draw();
+      } catch (e) { toast('Couldn\'t change your watchlist: ' + e.message, 'warn'); }
+      busy = false;
+    });
   }
 
   // ---------- trailers ----------
@@ -809,6 +1024,7 @@
     if (!main || !document.body.contains(main)) return;
     addRatings(title);
     addTrailerButton(item, title);
+    addWatchlistButton(item, title);
     var cast = castOf(title);
     var others = [];
     if (item.kind === 'movie' && title && title.collection && title.collection.id) {
@@ -817,16 +1033,29 @@
       others = ((col && col.movies) || []).map(fromTitle).filter(function (m) { return m.titleId !== item.titleId; });
       others.colName = (col && col.name) || title.collection.name || 'this collection';
     }
-    if (!cast.length && !others.length) return;
+    var tmdbId = (title && title.tmdbId) || item.tmdb;
+    var similar = [];
+    if (tmdbId) {
+      var sim = await Api.similar(item.kind === 'movie' ? 'movie' : 'series', tmdbId, profile.id).catch(function () { return null; });
+      if (!document.body.contains(main)) return;
+      var seenSim = {};
+      similar = ((Array.isArray(sim) ? sim : (sim && (sim.titles || sim.items || sim.results))) || [])
+        .map(function (t) { return t && t.title && !t.id ? t.title : t; })
+        .filter(function (t) { return t && t.id && t.id !== item.titleId && !seenSim[t.id] && (seenSim[t.id] = true); })
+        .map(fromTitle).slice(0, 20);
+    }
+    if (!cast.length && !others.length && !similar.length) return;
     // Films have room for the rows on screen, under the Play buttons; series
     // keep them below the fold, past the episodes.
     var film = item.kind === 'movie';
     var html = '<div class="title-extras' + (film ? ' film' : '') + '" data-vscroll><div class="rows-layer">' +
       (cast.length ? '<section class="row"><h2>Cast</h2><div class="row-track">' + cast.map(personCard).join('') + '</div></section>' : '') +
       (others.length ? '<section class="row"><h2>' + esc('In ' + others.colName) + '</h2><div class="row-track">' + others.map(posterCard).join('') + '</div></section>' : '') +
+      (similar.length ? '<section class="row"><h2>More like this</h2><div class="row-track">' +
+        similar.map(function (t, i) { return posterCard(t, 'm' + i); }).join('') + '</div></section>' : '') +
       '</div></div>';
     view.insertAdjacentHTML('beforeend', html + (film ? '' :
-      '<div class="extras-hint">▼ ' + (cast.length ? 'Cast and more' : esc('More in ' + others.colName)) + '</div>'));
+      '<div class="extras-hint">▼ ' + (cast.length ? 'Cast and more' : others.length ? esc('More in ' + others.colName) : 'More like this') + '</div>'));
     var box = view.querySelector('.title-extras');
     if (film) {   // start just under the buttons, however tall the title and text are
       var ROW_H = 330, a = document.getElementById('actions').getBoundingClientRect();
@@ -845,7 +1074,8 @@
       b.addEventListener('click', function () { openPerson(cast[+b.getAttribute('data-p')], backHere); });
     });
     box.querySelectorAll('[data-t]').forEach(function (b) {
-      b.addEventListener('click', function () { openTitle(others[+b.getAttribute('data-t')], backHere); });
+      var k = b.getAttribute('data-t');
+      b.addEventListener('click', function () { openTitle(k.charAt(0) === 'm' ? similar[+k.slice(1)] : others[+k], backHere); });
     });
   }
   // The page slides up while focus is in the extras, and back when it leaves.
@@ -960,6 +1190,29 @@
         setTimeout(applyProgress, RESTORE_REFRESH_MS);
       }
     };
+    var filmMore = document.createElement('button');
+    filmMore.className = 'btn more-btn'; filmMore.setAttribute('data-focus', ''); filmMore.textContent = '⋯';
+    filmMore.setAttribute('aria-label', 'More');
+    actions.appendChild(filmMore);
+    filmMore.addEventListener('click', async function () {
+      var w = await Api.watchedItem(profile.id, 'movie', item.titleId).catch(function () { return null; });
+      var isW = !!(w && (w.watched === true || (w.item && w.item.watched === true)));
+      choiceBox(item.name, 'Your other mediastorm apps will see this too.', [{
+        label: isW ? 'Mark as unwatched' : 'Mark as watched',
+        fn: async function () {
+          var x = {};
+          if (item.imdb) x.imdb = String(item.imdb);
+          if (item.tmdb) x.tmdb = String(item.tmdb);
+          if (item.tvdb) x.tvdb = String(item.tvdb);
+          try {
+            await Api.markWatched(profile.id, { mediaType: 'movie', itemId: item.titleId, name: item.name, year: +item.year || 0, watched: !isW, externalIds: x });
+            homeStale = true;
+            toast((isW ? 'Unmarked ' : 'Marked ') + item.name + (isW ? '.' : ' as watched.'));
+            applyProgress();
+          } catch (e) { toast('Couldn\'t change that: ' + e.message, 'warn'); }
+        }
+      }]);
+    });
     applyProgress();
   }
 
@@ -1049,9 +1302,62 @@
           var ep = se.episodes[+c.getAttribute('data-ep')];
           play(item, { resume: true, episode: { season: ep.seasonNumber, episode: ep.episodeNumber, title: ep.name || '', aired: (ep.airedDate || '').slice(0, 10) } });
         });
+        c.onhold = function () { episodeMenu(se, se.episodes[+c.getAttribute('data-ep')]); };
       });
       if (focusedEp != null) { var again = epsEl.querySelector('[data-ep="' + focusedEp + '"]'); if (again) again.focus({ preventScroll: true }); }
     }
+
+    // Marking watched: hold OK on an episode, or More on the page for the season.
+    function epUpdate(ep, isWatched) {
+      var x = {};
+      if (item.imdb) x.imdb = String(item.imdb);
+      if (item.tmdb) x.tmdb = String(item.tmdb);
+      if (item.tvdb) x.tvdb = String(item.tvdb);
+      return { mediaType: 'episode', seriesId: item.titleId, seriesName: item.name, seasonNumber: ep.seasonNumber,
+               episodeNumber: ep.episodeNumber, name: ep.name || '', watched: isWatched, externalIds: x };
+    }
+    function refreshWatch() {
+      homeStale = true;
+      return Promise.all([
+        Api.seriesWatchState(profile.id, item.titleId).catch(function () { return null; }),
+        Api.progressList(profile.id).catch(function () { return []; })
+      ]).then(function (w) { applyWatch(w, true); });
+    }
+    async function markEpisodes(eps, isWatched, what) {
+      try {
+        if (eps.length === 1) await Api.markWatched(profile.id, epUpdate(eps[0], isWatched));
+        else await Api.markWatchedBulk(profile.id, eps.map(function (ep) { return epUpdate(ep, isWatched); }));
+        eps.forEach(function (ep) { var k = ep.seasonNumber + ':' + ep.episodeNumber; if (isWatched) { watched[k] = true; delete partial[k]; } else delete watched[k]; });
+        paintWatch();
+        toast((isWatched ? 'Marked ' : 'Unmarked ') + what + (isWatched ? ' as watched.' : '.'));
+        refreshWatch();
+      } catch (e) { toast('Couldn\'t change that: ' + e.message, 'warn'); }
+    }
+    function seasonName(se) { return se.number === 0 ? 'the specials' : 'Season ' + se.number; }
+    function episodeMenu(se, ep) {
+      if (!ep) return;
+      var key = ep.seasonNumber + ':' + ep.episodeNumber, isW = !!watched[key];
+      var label = (ep.seasonNumber === 0 ? 'Special ' : 'S' + ep.seasonNumber + ' ') + 'E' + ep.episodeNumber + (ep.name ? ': ' + ep.name : '');
+      var idx = se.episodes.indexOf(ep), before = se.episodes.slice(0, idx + 1);
+      var choices = [{ label: isW ? 'Mark as unwatched' : 'Mark as watched', fn: function () { markEpisodes([ep], !isW, label); } }];
+      if (!isW && idx > 0) choices.push({ label: 'Watched up to here', fn: function () { markEpisodes(before, true, 'every episode up to ' + label); } });
+      choices.push({ label: 'Mark ' + seasonName(se) + ' watched', fn: function () { markEpisodes(se.episodes, true, seasonName(se)); } });
+      choiceBox(label, 'Your other mediastorm apps will see this too.', choices);
+    }
+    function seasonMenu() {
+      var se = seasons[shownSeason];
+      if (!se) return;
+      var allW = se.episodes.every(function (ep) { return watched[ep.seasonNumber + ':' + ep.episodeNumber]; });
+      choiceBox(item.name, 'Hold OK on an episode to mark just that one.', [
+        { label: (allW ? 'Mark ' + seasonName(se) + ' unwatched' : 'Mark ' + seasonName(se) + ' watched'),
+          fn: function () { markEpisodes(se.episodes, !allW, seasonName(se)); } }
+      ]);
+    }
+    var moreBtn = document.createElement('button');
+    moreBtn.className = 'btn more-btn'; moreBtn.setAttribute('data-focus', ''); moreBtn.textContent = '⋯';
+    moreBtn.setAttribute('aria-label', 'More');
+    moreBtn.addEventListener('click', seasonMenu);
+    document.getElementById('actions').appendChild(moreBtn);
 
     // Updates the Watched badges and progress bars on the cards already shown,
     // without redrawing them (and their thumbnails).
@@ -1306,6 +1612,15 @@
              premiumize: 'Premiumize', debridlink: 'Debrid-Link' }[p] || provider;
   }
 
+  var scoresSupported = null;   // whether this server has the scored search
+  // A short "why it ranks here" from mediastorm's scoring breakdown.
+  function rankingWhy(r) {
+    var b = (r && r.scoreBreakdown) || [];
+    var good = b.filter(function (x) { return x && x.points > 0 && (x.reason || x.criterion); })
+      .sort(function (p, q) { return q.points - p.points; }).slice(0, 3)
+      .map(function (x) { var t = String(x.reason || x.criterion); return t.length > 44 ? t.slice(0, 42) + '…' : t; });
+    return good.join(' · ');
+  }
   async function renderPicker(item, episode, back) {
     Nav.onBack(back);
     var heading = esc(item.name) + (episode ? '<span>S' + episode.season + ' E' + episode.episode + (episode.title ? ', ' + esc(episode.title) : '') + '</span>' : '');
@@ -1360,7 +1675,7 @@
 
     // Searches go two at a time, and stop once a special has been found, so
     // indexers aren't hit with a burst (they slow down or refuse when they are).
-    var list = [], seenRel = {}, failed = null, firstError = null;
+    var list = [], seenRel = {}, failed = null, firstError = null, scoresOk = scoresSupported;
     function add(res) {
       (Array.isArray(res) ? res : (res && res.results) || []).forEach(function (r) {
         var k = r.guid || r.link || r.downloadUrl || r.title;
@@ -1372,14 +1687,19 @@
     for (var qi = 0; qi < queries.length; qi += 2) {
       var batch = queries.slice(qi, qi + 2);
       var got = await Promise.all(batch.map(function (q) {
-        return Api.releases({ query: q.q, mediaType: item.kind === 'movie' ? 'movie' : 'series', userId: profile.id,
-          clientId: saved.clientId, imdbId: q.ids ? item.imdb : null, titleId: q.ids ? item.titleId : null, year: q.ids ? item.year : null })
-          .catch(function (e) { firstError = firstError || e; return []; });
+        var o = { query: q.q, mediaType: item.kind === 'movie' ? 'movie' : 'series', userId: profile.id,
+          clientId: saved.clientId, imdbId: q.ids ? item.imdb : null, titleId: q.ids ? item.titleId : null, year: q.ids ? item.year : null };
+        var go = q.ids && scoresOk !== false
+          ? Api.scoredReleases(o).then(function (res) { scoresOk = true; return res; },
+              function (e) { if (e && (e.status === 404 || e.status === 405 || e.status === 403)) { scoresOk = false; return Api.releases(o); } throw e; })
+          : Api.releases(o);
+        return go.catch(function (e) { firstError = firstError || e; return []; });
       }));
       if (view.className !== 'screen-picker') return;   // went back while searching
       got.forEach(add);
       if (!filterSpecial || list.some(matches)) break;
     }
+    if (scoresOk !== null) scoresSupported = scoresOk;
     if (!list.length && firstError) failed = firstError;
     var picker = document.getElementById('picker-list');
     function searchAgainButton() {
@@ -1441,7 +1761,8 @@
         return '<button class="release' + (filtered ? ' filtered' : '') + (d.debrid ? ' debrid' : '') + '" data-focus data-r="' + i + '">' +
           '<span class="tags">' + (tags || '<b>Unknown quality</b>') + '</span>' +
           '<span class="meta-tags">' + meta + '</span>' +
-          (filtered ? '<span class="why">Filtered: ' + esc(r.filterReason || 'excluded by your settings') + '</span>' : '') +
+          (filtered ? '<span class="why">Filtered: ' + esc(r.filterReason || 'excluded by your settings') + '</span>'
+                    : (rankingWhy(r) ? '<span class="why good">Ranked for: ' + esc(rankingWhy(r)) + '</span>' : '')) +
           '<span class="name">' + esc(r.title || '') + '</span></button>';
       }).join('');
       box.querySelectorAll('.release').forEach(function (b) {

@@ -18,6 +18,14 @@ Not affiliated with or supported by the mediastorm project. Tested on an LG C5
   focus. AI picks come from the AI provider set up in mediastorm, based on
   your watch history and watchlist, and refresh every few hours; without a
   provider the row is hidden
+- The background takes a subtle tint from the colours of the focused title's
+  backdrop, on the home screen and on film and series pages
+- New episodes and Coming soon rows on the home screen, from mediastorm's
+  calendar: new and upcoming episodes of shows on your watchlist or that
+  you've watched, and upcoming films on your watchlist. Picking a new episode
+  opens its series on that episode
+- + Watchlist on film and series pages adds or removes a title from your
+  mediastorm watchlist, the same list your other apps use
 - Voice search: Speak is selected when Search opens, so it's OK and talk into
   the remote. Say a title to find it, or describe what you'd like ("funny
   films about dogs") and, if no title matches, the AI suggests some. On TVs
@@ -32,6 +40,10 @@ Not affiliated with or supported by the mediastorm project. Tested on an LG C5
 - Film pages with resume, the cast, and the other films in the same collection
 - Series pages with seasons, episodes, watched and part-watched markers, and
   the cast below the episodes ("Cast and more" in the corner shows it's there)
+- More like this: similar films or series at the bottom of each page
+- Mark as watched: hold OK on an episode to mark it (or everything up to it,
+  or its season) watched or unwatched; the ⋯ button on a page does the same
+  for a season or a film. It syncs to mediastorm, so your other apps follow
 - Pages for actors: pick anyone from a cast row to see their photo, a short
   bio, and everything else they've been in
 - Trailers: a Trailer button on film and series pages plays it in YouTube's
@@ -57,6 +69,11 @@ Not affiliated with or supported by the mediastorm project. Tested on an LG C5
   you watch so a later switch is quick
 - A manual release picker, with plain labels for quality, source (Usenet or
   debrid), size, audio and language
+- Why a release was chosen: the release picker shows what each release was
+  ranked for ("2160p · Dolby Vision preferred · Matched ATMOS"), and About
+  this release in the player's Down menu shows where the playing release sat
+  in mediastorm's ranking, why any above it were skipped, and mediastorm's
+  full scoring breakdown
 - If something won't play, a box explains why and offers Choose release
 - Specials (season 0) are often released under their own name or a different
   number. For those, Search by name and date also searches the special's own
@@ -129,6 +146,7 @@ Not affiliated with or supported by the mediastorm project. Tested on an LG C5
 - Arrows move, OK selects, Back goes back.
 - On the home screen, press Up from the first row to reach Search and the
   profile switcher. Hold OK on a Continue watching card to remove it.
+- On a series page, hold OK on an episode to mark it watched or unwatched.
 - On film, series and person pages, Up reaches the Home button at the top,
   and Down reaches the cast.
 - In the player: OK pauses and plays (or presses Skip intro when it's showing), Down opens the audio and subtitles

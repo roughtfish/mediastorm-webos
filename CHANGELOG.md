@@ -2,6 +2,35 @@
 
 What changed in each version of mediastorm for LG webOS, newest first.
 
+## 1.6.0 (2026-10-11)
+
+- Why a release was chosen. The release picker shows what each release was
+  ranked for, from mediastorm's scoring. About this release, in the player's
+  Down menu, shows where the playing release sat in mediastorm's ranking,
+  why any ranked above it were skipped, and mediastorm's full breakdown.
+
+## 1.5.1 (2026-10-11)
+
+- The background takes a subtle tint from the colours of the focused title's
+  backdrop, fading between them, on the home screen and on film and series
+  pages.
+
+## 1.5.0 (2026-10-11)
+
+- More like this: similar films or series at the bottom of each page.
+- Mark as watched: hold OK on an episode to mark it, everything up to it, or
+  its season, watched or unwatched. The ⋯ button on a page does the same for
+  the season in view, or for a film.
+- Holding OK on a New episodes or Coming soon card no longer offers to remove
+  it from Continue watching.
+
+## 1.4.0 (2026-10-11)
+
+- + Watchlist on film and series pages, to add or remove a title from your
+  mediastorm watchlist.
+- New episodes and Coming soon rows on the home screen, for shows on your
+  watchlist or that you've watched, and upcoming films on your watchlist.
+
 ## 1.3.0 (2026-10-11)
 
 - Skip intro and Skip recap: a button appears during an episode's intro or
