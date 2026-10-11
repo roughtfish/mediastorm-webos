@@ -2,6 +2,13 @@
 
 What changed in each version of mediastorm for LG webOS, newest first.
 
+## 1.2.2 (2026-10-11)
+
+- Fewer false alarms from the "this release is a picture" check. A cover
+  picture inside a real video no longer counts, and an empty or failed check
+  is retried once and then left to the TV, instead of rejecting the release.
+  Only definite pictures are marked bad in mediastorm.
+
 ## 1.2.1 (2026-10-11)
 
 - Ratings on film and series pages: IMDb, Rotten Tomatoes (critics and

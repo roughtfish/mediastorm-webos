@@ -72,16 +72,31 @@ var Player = (function () {
   }
 
   // Returns { ok, reason, markBad, info } for one candidate path.
+  // A release only counts as a picture on clear evidence: the file's format is
+  // an image, or every video stream in it is one. A cover picture alongside a
+  // real video is fine, and an empty or failed check isn't a verdict: it's
+  // tried once more, then the TV is allowed to try the file. Only a definite
+  // picture is marked bad in mediastorm, since that hides it from every app.
+  function isImageCodec(c) { return IMAGE_CODECS.indexOf(String(c || '').toLowerCase()) !== -1; }
   async function vet(path) {
-    var m;
-    try { m = await Api.probe(path); }
-    catch (e) { return { ok: true, info: null }; }   // can't check: let the TV try it
-    var v = (m && m.videoStreams && m.videoStreams[0]) || {};
-    var codec = String(v.codecName || '').toLowerCase();
-    var format = String(m && m.formatName || '').toLowerCase();
-    if (!codec || IMAGE_CODECS.indexOf(codec) !== -1 || /_pipe$|^image2/.test(format)) {
+    var m = null;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try { m = await Api.probe(path); } catch (e) { m = null; }
+      if (m && ((m.videoStreams || []).length || m.formatName)) break;
+      if (attempt === 0) await new Promise(function (r) { setTimeout(r, 2500); });
+    }
+    if (!m) return { ok: true, info: null };   // couldn't check: let the TV try it
+    var format = String(m.formatName || '').toLowerCase();
+    var streams = m.videoStreams || [];
+    var real = streams.filter(function (st) { return st && st.codecName && !isImageCodec(st.codecName); });
+    var images = streams.filter(function (st) { return st && isImageCodec(st.codecName); });
+    var imageFormat = /_pipe$|^image2|^(jpeg|png|bmp|gif|webp|tiff)$/.test(format);
+    if (imageFormat || (images.length && images.length === streams.length)) {
       return { ok: false, markBad: true, reason: 'This release contains a picture, not a video.' };
     }
+    if (!real.length) return { ok: true, info: null };   // nothing conclusive: let the TV try it
+    var v = real[0];
+    var codec = String(v.codecName || '').toLowerCase();
     var info = { codec: codec, width: v.width, height: v.height, dv: v.hasDolbyVision, dvProfile: v.dolbyVisionProfile,
                  hdr: v.hdrFormat || '', audio: (m.audioStreams || []).slice().sort(function (a, b) { return a.index - b.index; }),
                  chapters: (m.chapters || []).map(function (ch) { return { title: ch.title || '', start: ch.start, end: ch.end || undefined }; }) };

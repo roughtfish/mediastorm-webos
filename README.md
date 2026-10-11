@@ -47,8 +47,10 @@ Not affiliated with or supported by the mediastorm project. Tested on an LG C5
 
 - Playback through mediastorm's prequeue, so it uses the same release ranking
   as the other mediastorm apps
-- Automatic fallback: releases that turn out to be a picture rather than a
-  video are marked bad and skipped, Dolby Vision profile 7 (which LG TVs can't
+- Automatic fallback: releases that are clearly a picture rather than a
+  video (the whole file is an image) are marked bad and skipped; a cover
+  picture inside a real video, or a check that comes back empty, doesn't
+  count, Dolby Vision profile 7 (which LG TVs can't
   show as Dolby Vision) is avoided where possible, and a release that won't
   start or stalls is swapped for a backup without losing your place. After a
   failure, several backups are checked at once, and one is kept ready while
