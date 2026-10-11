@@ -859,6 +859,7 @@
   var searchState = { query: '', results: [], focusKey: null, mode: 'title', aiQuery: '', status: '' };
   var KEYS = 'abcdefghijklmnopqrstuvwxyz1234567890'.split('');
   var aiCache = {};
+  var keyboardClosed = null;
 
   function suggestions() {
     var list = [];
@@ -898,16 +899,44 @@
       runAI(q);
     });
     // Speak: OK opens LG's keyboard on a real text field; its microphone key can
-    // dictate. Whatever ends up in the field is sent to the AI.
+    // dictate. Dictation drops a whole phrase in at once, so when that happens
+    // the app waits a moment for it to finish, closes the keyboard itself and
+    // sends it to the AI; no Enter needed. Typing on LG's keyboard still works:
+    // Enter, or closing the keyboard, sends what's there.
     var speak = document.getElementById('speak'), speakInput = document.getElementById('speak-input');
-    speak.addEventListener('click', function () { speakInput.value = searchState.query; speakInput.focus(); });
-    speakInput.addEventListener('change', function () {
+    var lastVal = '', sent = '', dictTimer = null;
+    function submitSpeak() {
+      clearTimeout(dictTimer);
+      if (document.activeElement !== speakInput) return;
       var v = speakInput.value.trim();
-      if (!v) return;
+      speakInput.blur();                      // closes LG's keyboard
+      Nav.focus(speak);
+      if (!v || v === sent) return;
+      sent = v;
       searchState.query = v.slice(0, 200);
       drawQuery();
       runAI(searchState.query);
+    }
+    speak.addEventListener('click', function () {
+      sent = ''; lastVal = speakInput.value = '';   // a spoken request starts fresh
+      speakInput.focus();
     });
+    speakInput.addEventListener('input', function () {
+      var v = speakInput.value;
+      clearTimeout(dictTimer);
+      if (v.trim() && v.length - lastVal.length >= 3) dictTimer = setTimeout(submitSpeak, 1200);
+      lastVal = v;
+    });
+    speakInput.addEventListener('change', submitSpeak);
+    speakInput.addEventListener('keydown', function (e) {
+      if (e.keyCode === 13) { e.preventDefault(); e.stopPropagation(); submitSpeak(); }   // don't let OK press Speak again
+    });
+    // webOS reports when its keyboard closes; one listener, replaced on each visit.
+    if (keyboardClosed) document.removeEventListener('keyboardStateChange', keyboardClosed);
+    keyboardClosed = function (e) {
+      if (e && e.detail && e.detail.visibility === false && speakInput.value.trim()) submitSpeak();
+    };
+    document.addEventListener('keyboardStateChange', keyboardClosed);
     document.removeEventListener('keydown', typeKey);
     document.addEventListener('keydown', typeKey);
     drawQuery();

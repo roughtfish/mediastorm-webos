@@ -93,8 +93,8 @@ Not affiliated with or supported by the mediastorm project. Tested on an LG C5
   the TV doesn't pass on a held button until it's released; there, a long
   press jumps 2 minutes.
 - On the search screen, the remote's number keys type digits. Speak opens LG's
-  own keyboard on a text field, whose microphone key may be able to dictate an
-  AI request.
+  own keyboard; press its microphone key and say what you'd like to watch. The
+  keyboard closes by itself and the request goes to the AI.
 
 ## How playback works
 
