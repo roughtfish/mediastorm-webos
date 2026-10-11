@@ -245,7 +245,21 @@ var Player = (function () {
         if (d && d.url && /^https?:\/\//i.test(d.url)) return d.url;
       } catch (e) { /* fall through to the server route */ }
     }
-    return Api.streamUrl(c.path, s.profileId);
+    return Api.streamUrl(c.path, s.profileId, streamMeta(s, c));
+  }
+  // What mediastorm needs to label the stream in its Active Streams panel.
+  function streamMeta(t, c) {
+    if (!t || !t.item) return null;
+    var it = t.item, movie = it.kind === 'movie', ep = t.episode || null;
+    var provider = (String(c.path || '').match(/^\/debrid\/([^/]+)\//) || [])[1] || '';
+    return {
+      mediaType: movie ? 'movie' : 'episode', itemId: progressItemId(t), title: it.name,
+      movieName: movie ? it.name : '', seriesName: movie ? '' : it.name, seriesId: movie ? '' : it.titleId,
+      episodeName: ep && ep.title || '', seasonNumber: ep ? ep.season : '', episodeNumber: ep ? ep.episode : '',
+      year: it.year || '', posterUrl: it.poster || '',
+      imdb: it.imdb || '', tmdb: it.tmdb || '', tvdb: it.tvdb || '', titleId: it.titleId || '',
+      sourceServiceType: serviceKind(c), debridProvider: provider
+    };
   }
 
   // Where the stream comes from, read from the path mediastorm handed back:
@@ -269,6 +283,7 @@ var Player = (function () {
     var token = {
       item: opts.item, episode: opts.episode || null, profileId: opts.profileId, clientId: opts.clientId,
       onExit: opts.onExit, nextEpisode: opts.nextEpisode || null, startAt: opts.startAt || 0, resume: opts.resume !== false,
+      cast: opts.cast || null, onPerson: opts.onPerson || null,
       candidates: [], attempts: 0, parallel: false, notes: [], current: null,
       lastSentAt: 0, playingSince: 0, startTimer: null, stallTimer: null, progressTimer: null, ended: false
     };
@@ -923,7 +938,8 @@ var Player = (function () {
     if (u.during) sendProgress(t, true, true).catch(function () {});   // leaving in the credits counts as finished
     // Up next always starts the next episode from the beginning, even if part of it was watched before.
     start({ item: t.item, episode: u.episode, profileId: t.profileId, clientId: t.clientId,
-            onExit: t.onExit, nextEpisode: t.nextEpisode, resume: false, startAt: 0 });
+            onExit: t.onExit, nextEpisode: t.nextEpisode, resume: false, startAt: 0,
+            cast: t.cast, onPerson: t.onPerson });
   }
   video.addEventListener('pause', function () { if (s) { showOsd(); sendProgress(s, false); } });
 
@@ -1035,6 +1051,7 @@ var Player = (function () {
     video.removeAttribute('src');
     video.load();
     Audio.close();
+    Cast.close();
     Subs.reset();
     $('player').className = '';
     $('prep').className = '';
@@ -1048,6 +1065,64 @@ var Player = (function () {
   function fail(message) {
     var token = stop(false);
     if (token && token.onExit) token.onExit(message, { episode: token.episode });
+  }
+
+  // ---------- cast while paused ----------
+  // Up pauses and shows the cast across the top. Left and right move, OK opens
+  // that person's page (your place is saved first), Up, Down or Back close it.
+  var Cast = (function () {
+    var open = false, idx = 0, list = [], seq = 0;
+    function draw() {
+      var track = $('cast-strip-track');
+      track.innerHTML = list.map(function (p, i) {
+        return '<div class="card person' + (i === idx ? ' sel' : '') + '">' +
+          (p.photo ? '<img src="' + escHtml(p.photo.replace(/\/t\/p\/(w\d+|original)\//, '/t/p/w185/')) + '" alt="" onerror="this.remove()">' : '') +
+          '<span class="card-fallback">' + escHtml(p.name) + '</span>' +
+          '<span class="card-label">' + escHtml(p.name) + (p.character ? '<em>' + escHtml(p.character) + '</em>' : '') + '</span></div>';
+      }).join('');
+      var sel = track.children[idx];
+      if (sel) {   // keep the chosen card in view
+        var tr = track.getBoundingClientRect(), r = sel.getBoundingClientRect();
+        if (r.left < tr.left + 60) track.scrollLeft -= (tr.left + 60 - r.left);
+        else if (r.right > tr.right - 60) track.scrollLeft += (r.right - (tr.right - 60));
+      }
+    }
+    function close() { open = false; seq++; $('cast-strip').className = ''; showOsd(); }
+    async function show() {
+      var t = s;
+      if (!t || !t.cast) return;
+      video.pause();
+      open = true; idx = 0; list = [];
+      var my = ++seq;
+      $('cast-strip').className = 'on';
+      $('cast-strip-title').textContent = 'Cast';
+      $('cast-strip-track').innerHTML = '<span class="muted" style="margin-left:var(--pad)">Loading the cast</span>';
+      showOsd();
+      var got = [];
+      try { got = (await t.cast()) || []; } catch (e) { got = []; }
+      if (my !== seq || !open) return;
+      list = got;
+      if (!list.length) { $('cast-strip-track').innerHTML = '<span class="muted" style="margin-left:var(--pad)">No cast listed for this one.</span>'; return; }
+      draw();
+    }
+    function pick() {
+      var p = list[idx], t = s;
+      if (!p || !t || !t.onPerson) return;
+      close();
+      var token = stop(false);   // saves your place
+      if (token) token.onPerson(p, { episode: token.episode });
+    }
+    function key(k) {
+      if (k === KEY.LEFT) { if (idx > 0) { idx--; draw(); } }
+      else if (k === KEY.RIGHT) { if (idx < list.length - 1) { idx++; draw(); } }
+      else if (k === KEY.ENTER) pick();
+      else if (k === KEY.UP || k === KEY.DOWN || k === KEY.BACK || k === KEY.ESC || k === KEY.BACKSPACE) close();
+      else if (k === KEY.PLAY || k === KEY.PLAYPAUSE) { close(); video.play(); }
+    }
+    return { show: show, key: key, close: function () { if (open) close(); }, isOpen: function () { return open; } };
+  })();
+  function escHtml(t) {
+    return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; });
   }
 
   // Player keys take priority while it's open.
@@ -1068,6 +1143,7 @@ var Player = (function () {
       return true;
     }
     if (Audio.isOpen()) { Audio.key(k); return true; }
+    if (Cast.isOpen()) { Cast.key(k); return true; }
     if (scrub) {
       if (k === KEY.LEFT || k === KEY.RIGHT || k === KEY.RW || k === KEY.FF) { /* keep moving, below */ }
       else if (k === KEY.ENTER) { commitScrub(); return true; }
@@ -1083,6 +1159,7 @@ var Player = (function () {
     else if (k === KEY.RW) seek(-30, 30, k, e.repeat);
     else if (k === KEY.FF) seek(30, 30, k, e.repeat);
     else if (k === KEY.DOWN) Audio.open();
+    else if (k === KEY.UP && s && s.cast) Cast.show();
     else showOsd();
     return true;
   });

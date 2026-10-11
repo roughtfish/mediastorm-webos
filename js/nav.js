@@ -120,6 +120,7 @@ var Nav = (function () {
     KEY: KEY,
     setScope: function (el) { scope = el || document; },
     onBack: function (fn) { backHandler = fn; },
+    currentBack: function () { return backHandler; },
     onKey: function (fn) { keyHandler = fn; },
     focus: focus,
     first: first

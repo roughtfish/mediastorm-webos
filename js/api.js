@@ -59,6 +59,9 @@ var Api = (function () {
 
     continueWatching: function (userId) { return call('GET', '/users/' + enc(userId) + '/history/continue'); },
     watchlist: function (userId) { return call('GET', '/users/' + enc(userId) + '/watchlist'); },
+    hideContinue: function (userId, seriesId) {
+      return call('POST', '/users/' + enc(userId) + '/history/continue/hide', { seriesId: seriesId });
+    },
     topTen: function (userId) { return call('GET', '/discover/top-ten?type=all&userId=' + enc(userId)); },
 
     search: function (query, userId) {
@@ -78,6 +81,19 @@ var Api = (function () {
       if (item.tmdb) q += '&tmdbId=' + enc(item.tmdb);
       if (item.imdb) q += '&imdbId=' + enc(item.imdb);
       return call('GET', '/metadata/series/details?' + q + '&userId=' + enc(userId));
+    },
+    movieDetails: function (item, userId) {
+      var q = 'titleId=' + enc(item.titleId) + '&name=' + enc(item.name || '');
+      if (item.year) q += '&year=' + enc(item.year);
+      if (item.tmdb) q += '&tmdbId=' + enc(item.tmdb);
+      if (item.imdb) q += '&imdbId=' + enc(item.imdb);
+      return call('GET', '/metadata/movies/details?' + q + '&userId=' + enc(userId));
+    },
+    personDetails: function (id, userId) {
+      return call('GET', '/metadata/person?id=' + enc(id) + '&userId=' + enc(userId));
+    },
+    collectionDetails: function (id, userId) {
+      return call('GET', '/metadata/collection?id=' + enc(id) + '&userId=' + enc(userId));
     },
     seriesWatchState: async function (userId, seriesId) {
       try { return await call('GET', '/users/' + enc(userId) + '/history/series/' + enc(seriesId)); }
@@ -144,9 +160,18 @@ var Api = (function () {
 
     // The untouched file through the backend. transmux=false matters: without
     // it the backend may remux MKVs and lose the Dolby Vision metadata.
-    streamUrl: function (path, profileId) {
+    // meta (optional) names what's playing, so mediastorm's Active Streams
+    // panel shows the title, episode and poster rather than "Unknown".
+    // mediastorm's own icons (rating logos and the like).
+    staticUrl: function (path) { return server + '/api/static/' + path; },
+    streamUrl: function (path, profileId, meta) {
+      var extra = '';
+      Object.keys(meta || {}).forEach(function (k) {
+        var v = meta[k];
+        if (v !== undefined && v !== null && v !== '') extra += '&' + k + '=' + enc(String(v));
+      });
       return server + '/api/video/stream?path=' + enc(path) + '&transmux=false' +
-        (profileId ? '&profileId=' + enc(profileId) : '') + '&token=' + enc(token);
+        (profileId ? '&profileId=' + enc(profileId) : '') + extra + '&token=' + enc(token);
     }
   };
 })();

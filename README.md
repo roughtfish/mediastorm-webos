@@ -10,15 +10,41 @@ Not affiliated with or supported by the mediastorm project. Tested on an LG C5
 
 ## Features
 
+### Finding something to watch
+
 - Profiles, including PIN-protected ones
-- Home screen with Continue watching, AI picks for you, your watchlist and the
-  Top 10, with a backdrop that follows whatever you focus. AI picks come from
-  the AI provider set up in mediastorm, based on your watch history and
-  watchlist, and refresh every few hours; without a provider the row is hidden
-- Search by title, plus AI search: describe what you want ("slow-burn sci-fi
-  like Arrival") and the AI provider set up in mediastorm suggests matches
-- Film pages with resume, and series pages with seasons, episodes and
-  watched or part-watched markers
+- Home screen with Continue watching, AI picks (split into films and series),
+  your watchlist and the Top 10, with a backdrop that follows whatever you
+  focus. AI picks come from the AI provider set up in mediastorm, based on
+  your watch history and watchlist, and refresh every few hours; without a
+  provider the row is hidden
+- Voice search: Speak is selected when Search opens, so it's OK and talk into
+  the remote. Say a title to find it, or describe what you'd like ("funny
+  films about dogs") and, if no title matches, the AI suggests some. On TVs
+  whose web engine has no speech recognition, Speak opens LG's keyboard, whose
+  microphone key works instead
+- Typed search by title, and Ask AI to send the same words to the AI as a
+  description
+- Ratings on film and series pages: IMDb, Rotten Tomatoes (critics and
+  audience), Metacritic and Letterboxd, with the age rating, runtime and
+  genres. The scores come through mediastorm from MDBList, so they need an
+  MDBList API key set up in mediastorm
+- Film pages with resume, the cast, and the other films in the same collection
+- Series pages with seasons, episodes, watched and part-watched markers, and
+  the cast below the episodes ("Cast and more" in the corner shows it's there)
+- Pages for actors: pick anyone from a cast row to see their photo, a short
+  bio, and everything else they've been in
+- Trailers: a Trailer button on film and series pages plays it in YouTube's
+  embedded player inside the app (OK pauses, left and right skip 10 seconds,
+  Back closes). If YouTube won't play it there, it opens in the TV's YouTube
+  app instead
+- Long descriptions get a More button that shows the full text
+- A Home button at the top of film, series and person pages
+- Remove titles from Continue watching: hold OK on the card, or use the button
+  on its page
+
+### Playback
+
 - Playback through mediastorm's prequeue, so it uses the same release ranking
   as the other mediastorm apps
 - Automatic fallback: releases that turn out to be a picture rather than a
@@ -29,31 +55,45 @@ Not affiliated with or supported by the mediastorm project. Tested on an LG C5
   you watch so a later switch is quick
 - A manual release picker, with plain labels for quality, source (Usenet or
   debrid), size, audio and language
+- If something won't play, a box explains why and offers Choose release
+- Specials (season 0) are often released under their own name or a different
+  number. For those, Search by name and date also searches the special's own
+  words and air date, and shows only releases that name it (and the right
+  part of a two-parter); everything else is one press away. These searches go
+  two at a time and stop once the special is found, so indexers aren't hit
+  with a burst, and Search again retries if one comes back empty
 - Audio and subtitle menu, defaulting to your mediastorm profile's language
   and subtitle settings; text subtitles are drawn by the app over the video
+- Cast while watching: press Up to pause and see who's in it, and pick someone
+  to see what else they've been in. Your place is saved, and Back returns to
+  the show
 - Up next: when the credits start, the next episode is offered with a
   10-second countdown while the credits play (OK to play it now, Back to keep
   watching). The credits time comes from the file's own chapters (one named
   "Credits", "End Credits", "Outro" and so on), then IntroDB/SkipDB through
   mediastorm (works with older and newer servers), then mediastorm's credits
-  detection if it's switched on. Without one, Up next appears when the
-  episode ends.
-  The next episode always starts from the beginning.
-- Watch progress synced back to mediastorm every 10 seconds
+  detection if it's switched on. Without any of these, Up next appears when
+  the episode ends. The next episode always starts from the beginning
+- Watch progress synced back to mediastorm every 10 seconds, and streams
+  through your server show in mediastorm's Active Streams panel with their
+  title, episode and poster
 - Debrid streams played straight from the debrid service where possible,
   sparing your server's bandwidth
+- Pages stay in place behind the player, so stopping returns you straight to
+  where you were; images are requested at the size they're shown
 
 ## Requirements
 
 - A mediastorm server the TV can reach over HTTP or HTTPS
 - An LG TV with Developer Mode enabled (install the Developer Mode app from the
   LG Content Store and sign in with an LG developer account). Developer Mode
-  sessions expire after 50 hours unless renewed; tools such as webOS Dev
-  Manager can extend them, or a renewal app can keep them going.
+  sessions expire after 50 hours unless renewed; webOS Dev Manager can extend
+  them, or [Auto Dev Token Refresh](https://repo.webosbrew.org/apps/com.pirate.refresh/)
+  renews them for you
 - [webOS Dev Manager](https://github.com/webosbrew/dev-manager-desktop) on a
   computer, to install the app on the TV
-- For AI search: an AI provider configured in mediastorm, under Movie & Show
-  Information in its admin panel
+- For AI picks and AI search: an AI provider configured in mediastorm, under
+  Movie & Show Information in its admin panel
 - Only if you build it yourself: Node.js and LG's webOS CLI
   (`npm install -g @webos-tools/cli`)
 
@@ -82,19 +122,20 @@ Not affiliated with or supported by the mediastorm project. Tested on an LG C5
 ## Remote control
 
 - Arrows move, OK selects, Back goes back.
-- From the first row of the home screen, press Up to reach Search and the
-  profile switcher.
+- On the home screen, press Up from the first row to reach Search and the
+  profile switcher. Hold OK on a Continue watching card to remove it.
+- On film, series and person pages, Up reaches the Home button at the top,
+  and Down reaches the cast.
 - In the player: OK pauses and plays, Down opens the audio and subtitles
-  menu, Back stops.
+  menu, Up shows the cast, Back stops.
 - To move through a video, press left and right (or rewind and fast
   forward): a marker shows where you'll land, and the video jumps there when
   you stop pressing or press OK. Quick taps make the steps bigger, from 10
   seconds up to 2 minutes, and so does holding. On some videos (seen on 4K)
   the TV doesn't pass on a held button until it's released; there, a long
   press jumps 2 minutes.
-- On the search screen, the remote's number keys type digits. Speak opens LG's
-  own keyboard; press its microphone key and say what you'd like to watch. The
-  keyboard closes by itself and the request goes to the AI.
+- On the search screen, OK on Speak listens; press it again to stop early, or
+  Back to cancel. The remote's number keys type digits.
 
 ## How playback works
 
@@ -113,8 +154,15 @@ The player's on-screen info shows where each stream comes from, for example
 - Picture-based subtitles (PGS, typical of Blu-ray remuxes) can't be shown;
   text subtitles (SRT, ASS) can. Extracting subtitles makes the server read
   through the file a second time while they're on.
-- TrueHD and some DTS tracks need an eARC soundbar or receiver set to
-  passthrough, since LG TVs don't decode them.
+- LG's 2025 TVs don't support DTS at all, and TrueHD needs an eARC soundbar
+  or receiver set to passthrough. Releases with only those audio tracks may
+  play silently, especially through TV speakers; mediastorm's Always Exclude
+  filter (`DTS`, `TrueHD`, `REMUX`) keeps them out of a profile.
+- TVs without Dolby Vision (HDR10 only) can show DV-only releases (profile 5)
+  with wrong colours. mediastorm's HDR & Dolby Vision setting, set to
+  "SDR + HDR only" for that profile, avoids them.
+- Specials are usually found only on Usenet: most debrid sources search by
+  IMDb ID and episode number, and specials are numbered differently there.
 - Streams played directly from a debrid service don't appear in mediastorm's
   Active Streams panel unless your mediastorm version supports client-reported
   streams.

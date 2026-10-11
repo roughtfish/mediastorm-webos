@@ -48,7 +48,7 @@
     aiFetching[id] = true;
     Api.aiRecommendations(id).then(function (r) {
       var items = ((r && r.items) || []).map(function (t) { return t && t.title ? fromTitle(t.title) : null; })
-        .filter(Boolean).slice(0, 20);
+        .filter(Boolean).slice(0, 30);
       try { localStorage.setItem(aiCacheKey(id), JSON.stringify({ items: items, at: Date.now() })); } catch (e) { /* full: skip */ }
       if (items.length && profile && profile.id === id) {
         homeStale = true;
@@ -75,6 +75,141 @@
     clearTimeout(toastEl._t);
     toastEl._t = setTimeout(function () { toastEl.className = ''; }, 7000);
   }
+  // The full text of a description, in a box over the page. Up and Down scroll
+  // it, and Back or OK closes it.
+  function textBox(title, text) {
+    var back = document.activeElement, prevBack = Nav.currentBack ? Nav.currentBack() : null;
+    var box = document.createElement('div');
+    box.id = 'confirm';
+    box.className = 'textbox';
+    box.innerHTML = '<div class="box"><h2>' + esc(title) + '</h2><div class="textbox-body">' + esc(text) + '</div>' +
+      '<div class="actions"><button class="btn primary" data-focus id="textbox-close">Close</button>' +
+      '<span class="muted textbox-hint">Up and down to scroll</span></div></div>';
+    document.body.appendChild(box);
+    var body = box.querySelector('.textbox-body');
+    if (body.scrollHeight <= body.clientHeight + 2) box.querySelector('.textbox-hint').textContent = '';
+    Nav.setScope(box);
+    function onKey(e) {
+      if (e.keyCode === 38 || e.keyCode === 40) {
+        e.preventDefault(); e.stopImmediatePropagation();
+        body.scrollTop += (e.keyCode === 40 ? 1 : -1) * Math.round(body.clientHeight * 0.6);
+      }
+    }
+    document.addEventListener('keydown', onKey, true);
+    function close() {
+      document.removeEventListener('keydown', onKey, true);
+      if (box.parentNode) box.parentNode.removeChild(box);
+      Nav.setScope(view);
+      Nav.onBack(prevBack);
+      if (back && document.body.contains(back)) Nav.focus(back); else Nav.first();
+    }
+    Nav.onBack(close);
+    box.querySelector('#textbox-close').addEventListener('click', close);
+    Nav.focus(box.querySelector('#textbox-close'));
+  }
+  // Puts a More button after a description that's been cut short, or removes it
+  // if the text now fits. getText gives the full text when it's pressed.
+  function moreTag(el, title, getText) {
+    if (!el) return;
+    var tag = el.nextElementSibling && el.nextElementSibling.classList.contains('more-tag') ? el.nextElementSibling : null;
+    var cut = el.scrollHeight > el.clientHeight + 2;
+    if (!cut) { if (tag) tag.parentNode.removeChild(tag); return; }
+    if (!tag) {
+      tag = document.createElement('button');
+      tag.className = 'more-tag'; tag.setAttribute('data-focus', ''); tag.textContent = 'More';
+      el.parentNode.insertBefore(tag, el.nextSibling);
+    }
+    tag.onclick = function () { textBox(title, getText()); };
+  }
+
+  // A message box with a few choices; Back closes it. choices: [{ label, fn }],
+  // the first one selected. A Close choice is added at the end.
+  function choiceBox(title, text, choices) {
+    var back = document.activeElement, prevBack = Nav.currentBack ? Nav.currentBack() : null;
+    var box = document.createElement('div');
+    box.id = 'confirm';
+    box.innerHTML = '<div class="box"><h2>' + esc(title) + '</h2><p>' + esc(text) + '</p><div class="actions">' +
+      choices.map(function (c, i) { return '<button class="btn' + (i === 0 ? ' primary' : '') + '" data-focus data-c="' + i + '">' + esc(c.label) + '</button>'; }).join('') +
+      '<button class="btn" data-focus id="confirm-no">Close</button></div></div>';
+    document.body.appendChild(box);
+    Nav.setScope(box);
+    function close() {
+      if (box.parentNode) box.parentNode.removeChild(box);
+      Nav.setScope(view);
+      Nav.onBack(prevBack);
+      if (back && document.body.contains(back)) Nav.focus(back); else Nav.first();
+    }
+    Nav.onBack(close);
+    box.querySelector('#confirm-no').addEventListener('click', close);
+    box.querySelectorAll('[data-c]').forEach(function (b) {
+      b.addEventListener('click', function () { close(); choices[+b.getAttribute('data-c')].fn(); });
+    });
+    Nav.focus(box.querySelector('[data-c]') || box.querySelector('#confirm-no'));
+  }
+
+  // When something won't play: say so in a box over the page, with a way to
+  // pick a release by hand. Specials are often named by title or date rather
+  // than S00Exx, so for those the search tries those too.
+  function showPlayError(item, ep, message) {
+    var label = ep ? (ep.season === 0 ? 'this special' : 'S' + ep.season + ' E' + ep.episode) : item.name;
+    var special = ep && ep.season === 0;
+    var text = message;
+    if (special && /no results|no .*releases?|couldn't find/i.test(message || '')) {
+      text = 'mediastorm searched for it as S0 E' + ep.episode + ' and found nothing. Specials are often released under their name or air date instead, so a search by those may find it.';
+    }
+    choiceBox('Couldn\'t play ' + label, text, [{
+      label: special ? 'Search by name and date' : 'Choose release',
+      fn: function () {
+        var keep = titleReturn;
+        renderPicker(item, ep, function () { titleReturn = keep; renderTitle(item, null, ep); });
+      }
+    }]);
+  }
+
+  // A small yes/no box over the current screen. Back or Cancel closes it.
+  function confirmBox(title, text, yesLabel, onYes) {
+    var back = document.activeElement, prevBack = Nav.currentBack ? Nav.currentBack() : null;
+    var box = document.createElement('div');
+    box.id = 'confirm';
+    box.innerHTML = '<div class="box"><h2>' + esc(title) + '</h2><p>' + esc(text) + '</p><div class="actions">' +
+      '<button class="btn primary" data-focus id="confirm-yes">' + esc(yesLabel) + '</button>' +
+      '<button class="btn" data-focus id="confirm-no">Cancel</button></div></div>';
+    document.body.appendChild(box);
+    Nav.setScope(box);
+    function close() {
+      if (box.parentNode) box.parentNode.removeChild(box);
+      Nav.setScope(view);
+      Nav.onBack(prevBack);
+      if (back && document.body.contains(back)) Nav.focus(back); else Nav.first();
+    }
+    Nav.onBack(close);
+    box.querySelector('#confirm-no').addEventListener('click', close);
+    box.querySelector('#confirm-yes').addEventListener('click', function () { close(); onYes(); });
+    Nav.focus(box.querySelector('#confirm-yes'));
+  }
+
+  // Continue watching: removing a title asks mediastorm to hide it from the row
+  // (until you watch it again), then takes it out of the home screen straight away.
+  function inContinue(item) {
+    var row = homeData && homeData.rows && homeData.rows.filter(function (r) { return r.wide; })[0];
+    return !!(row && row.items.some(function (i) { return i.titleId === item.titleId; }));
+  }
+  function askRemoveContinue(item, after) {
+    confirmBox('Remove from Continue watching?', item.name + ' will no longer show in the row. Watching it again brings it back.',
+      'Remove', async function () {
+        try { await Api.hideContinue(profile.id, item.titleId); }
+        catch (e) { toast('Couldn\'t remove it: ' + e.message, 'warn'); return; }
+        if (homeData && homeData.rows) {
+          homeData.rows = homeData.rows.map(function (r) {
+            return r.wide ? Object.assign({}, r, { items: r.items.filter(function (i) { return i.titleId !== item.titleId; }) }) : r;
+          }).filter(function (r) { return r.items.length; });
+          writeHomeCache(homeData);
+        }
+        toast('Removed ' + item.name + ' from Continue watching.');
+        if (after) after();
+      });
+  }
+
   function fmtTime(sec) {
     sec = Math.floor(sec || 0);
     var h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60);
@@ -104,6 +239,63 @@
     return '<img src="' + esc(small) + '"' + (small !== url ? ' data-full="' + esc(url) + '"' : '') + ' alt=""' +
       (lazy ? ' loading="lazy" decoding="async"' : '') + ' onerror="msImgFail(this)">';
   }
+
+  // Holding OK on a Continue watching card offers to remove it; a normal press
+  // opens it as before. Runs before the usual key handling, home screen only.
+  // TVs report a held button differently: some repeat the key-down, some send a
+  // stream of down/up pairs. So a release only counts as a short press if no new
+  // key-down follows within a moment; key-downs that keep coming for 0.7 s are a hold.
+  var HOLD_MS = 700, GAP_MS = 250;
+  var hold = null, homeItems = [];   // { card, start, holdTimer, gapTimer }
+  // After the box opens, OK presses from the same hold are ignored until the
+  // button has been let go, so a held button can't press Remove by itself.
+  var swallowOK = false, swallowTimer = null;
+  function swallowUntilQuiet() {
+    swallowOK = true;
+    clearTimeout(swallowTimer);
+    swallowTimer = setTimeout(function () { swallowOK = false; }, 400);
+  }
+  function endHold() {
+    if (!hold) return null;
+    clearTimeout(hold.holdTimer); clearTimeout(hold.gapTimer);
+    hold.card.classList.remove('holding');
+    var h = hold; hold = null;
+    return h;
+  }
+  function holdFired() {
+    var h = endHold();
+    if (!h) return;
+    var item = homeItems[+h.card.getAttribute('data-i')];
+    if (!item) return;
+    swallowUntilQuiet();
+    askRemoveContinue(item, function () { renderHome(); });
+  }
+  document.addEventListener('keydown', function (e) {
+    if (e.keyCode === 13 && swallowOK) { e.preventDefault(); e.stopImmediatePropagation(); swallowUntilQuiet(); return; }
+    if (e.keyCode !== 13 || Player.active || view.className !== 'screen-home' || document.getElementById('confirm')) return;
+    var a = document.activeElement;
+    if (!a || !a.classList.contains('card') || !a.classList.contains('wide')) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    if (hold && hold.card === a) {                  // still being held
+      clearTimeout(hold.gapTimer);
+      if (Date.now() - hold.start >= HOLD_MS) holdFired();
+      return;
+    }
+    endHold();
+    hold = { card: a, start: Date.now() };
+    a.classList.add('holding');
+    hold.holdTimer = setTimeout(holdFired, HOLD_MS);
+  }, true);
+  document.addEventListener('keyup', function (e) {
+    if (e.keyCode === 13 && swallowOK) { e.preventDefault(); e.stopImmediatePropagation(); swallowUntilQuiet(); return; }
+    if (e.keyCode !== 13 || !hold) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    clearTimeout(hold.gapTimer);
+    hold.gapTimer = setTimeout(function () {        // no new key-down: it was a short press
+      var h = endHold();
+      if (h && document.body.contains(h.card)) h.card.click();
+    }, GAP_MS);
+  }, true);
 
   // ---------- normalising titles from different endpoints ----------
   function ext(map, key) { return map && map[key] ? String(map[key]) : ''; }
@@ -269,7 +461,16 @@
     if (Array.isArray(results[0]) && results[0].length) rows.push({ title: 'Continue watching', wide: true, items: results[0].map(fromContinue) });
     if (!readAiCache(uid)) fetchAiRow(uid);
     var ai = readAiCacheAny(uid);
-    if (ai && ai.items.length) rows.push({ title: 'AI picks for you', items: ai.items });
+    if (ai && ai.items.length) {
+      // Split into films and series from the same answer; if either side is
+      // too thin to make a proper row, keep them together.
+      var films = ai.items.filter(function (i) { return i.kind === 'movie'; });
+      var series = ai.items.filter(function (i) { return i.kind !== 'movie'; });
+      if (films.length >= 3 && series.length >= 3) {
+        rows.push({ title: 'AI picks: films', items: films });
+        rows.push({ title: 'AI picks: series', items: series });
+      } else rows.push({ title: 'AI picks for you', items: ai.items });
+    }
     if (Array.isArray(results[1]) && results[1].length) rows.push({ title: 'Your watchlist', items: results[1].map(fromWatchlist) });
     var top = results[2] && results[2].items;
     if (Array.isArray(top) && top.length) rows.push({ title: 'Top 10 today', items: top.map(function (t) { return fromTitle(t.title); }) });
@@ -318,6 +519,7 @@
       }
     }
     var all = [];
+    homeItems = all;
     var rowsHtml = homeData.rows.map(function (row) {
       return '<section class="row"><h2>' + esc(row.title) + '</h2><div class="row-track">' +
         row.items.map(function (item) {
@@ -389,11 +591,19 @@
     else renderSeries(item, message, focusEpisode);
   }
 
+  // A Home button at the top of film, series and person pages, so a long trail
+  // of actors and titles is one Up-and-OK from the home screen.
+  var HOME_PILL = '<button class="btn pill quiet go-home" data-focus id="go-home">Home</button>';
+  view.addEventListener('click', function (e) {
+    if (e.target && e.target.id === 'go-home') { titleReturn = null; renderHome(); }
+  });
+
   function titleShell(item, message, extra) {
-    return '<div class="title-art">' + (item.backdrop ? '<img src="' + esc(item.backdrop) + '" alt="" onerror="this.remove()">' : '') + '</div>' +
-      '<div class="title-body' + (extra ? ' compact' : '') + '">' +
+    return HOME_PILL + '<div class="title-art">' + (item.backdrop ? '<img src="' + esc(item.backdrop) + '" alt="" onerror="this.remove()">' : '') + '</div>' +
+      '<div class="title-body' + (extra ? ' compact' : ' film') + '">' +
         '<h1>' + esc(item.name) + '</h1>' +
-        '<p class="meta" id="title-meta">' + esc(metaLine(item)) + '</p>' +
+        '<div class="meta-row"><p class="meta" id="title-meta">' + esc(metaLine(item)) + '</p>' +
+          '<span class="ratings" id="title-ratings"></span></div>' +
         '<p class="overview">' + esc(item.overview) + '</p>' +
         '<div class="actions" id="actions"><button class="btn primary" data-focus data-autofocus id="play-main">Play</button></div>' +
         (message ? '<p class="error">' + esc(message) + '</p>' : '') +
@@ -418,14 +628,308 @@
     }
   }
 
+  // ---------- cast, people and collections ----------
+  // Film and series details carry the top-billed cast (and, for films, the
+  // collection a film belongs to). They're kept for the session.
+  var titleDetailsCache = {};
+  function titleDetailsCached(item) {
+    if (item.kind !== 'movie') {
+      return seriesDetailsCached(item).then(function (d) { return d && !d.error ? (d.title || null) : null; });
+    }
+    var key = 'movie|' + item.titleId;
+    if (!titleDetailsCache[key]) {
+      titleDetailsCache[key] = Api.movieDetails(item, profile.id).then(function (d) { return (d && (d.title || d)) || null; })
+        .catch(function () { delete titleDetailsCache[key]; return null; });
+    }
+    return titleDetailsCache[key];
+  }
+  function castOf(title) {
+    var list = (title && title.credits && title.credits.cast) || [];
+    return list.filter(function (c) { return c && c.id && c.name; })
+      .sort(function (a, b) { return (a.order || 0) - (b.order || 0); }).slice(0, 20)
+      .map(function (c) { return { id: c.id, name: c.name, character: c.character || '', photo: c.profileUrl || '' }; });
+  }
+  function personCard(p, i) {
+    return '<button class="card person" data-focus data-p="' + i + '">' +
+      (p.photo ? imgTag(p.photo, 'w185', true) : '') +
+      '<span class="card-fallback">' + esc(p.name) + '</span>' +
+      '<span class="card-label">' + esc(p.name) + (p.character ? '<em>' + esc(p.character) + '</em>' : '') + '</span></button>';
+  }
+  function posterCard(item, i) {
+    return '<button class="card poster" data-focus data-t="' + i + '">' +
+      (item.poster ? imgTag(item.poster, 'w342', true) : '') +
+      '<span class="card-fallback">' + esc(item.name) + (item.year ? ' (' + item.year + ')' : '') + '</span></button>';
+  }
+
+  // ---------- ratings ----------
+  // Scores from IMDb, Rotten Tomatoes, Metacritic and Letterboxd (through
+  // MDBList, when it's set up in mediastorm), with the age rating, runtime and
+  // genres, on the same line as the year.
+  function ratingsHtml(title) {
+    if (!title) return '';
+    var by = {};
+    (title.ratings || []).forEach(function (r) { if (r && r.source && r.value > 0) by[String(r.source).toLowerCase()] = r; });
+    function icon(name) { return '<img src="' + esc(Api.staticUrl('rating_icons/' + name + '.png')) + '" alt="" onerror="this.remove()">'; }
+    function pct(r) { return Math.round(r.max && r.max !== 100 ? r.value / r.max * 100 : r.value) + '%'; }
+    function score(r, scale) { var v = r.max && r.max !== scale ? r.value / r.max * scale : r.value; return scale === 100 ? String(Math.round(v)) : v.toFixed(1); }
+    var out = [];
+    if (by.imdb) out.push(['imdb', score(by.imdb, 10), 'IMDb']);
+    if (by.tomatoes) out.push([pct(by.tomatoes).replace('%', '') >= 60 ? 'rt_critics' : 'rt_rotten', pct(by.tomatoes), 'Rotten Tomatoes']);
+    if (by.audience) out.push(['rt_audience', pct(by.audience), 'Audience']);
+    if (by.metacritic) out.push(['metacritic', score(by.metacritic, 100), 'Metacritic']);
+    if (by.letterboxd) out.push(['letterboxd', score(by.letterboxd, 5), 'Letterboxd']);
+    if (!out.length && by.tmdb) out.push(['tmdb', score(by.tmdb, 10), 'TMDB']);
+    var html = out.map(function (o) { return '<span class="rating" title="' + esc(o[2]) + '">' + icon(o[0]) + esc(o[1]) + '</span>'; }).join('');
+    var extra = [];
+    if (title.certification) extra.push('<span class="cert">' + esc(title.certification) + '</span>');
+    if (title.runtimeMinutes > 0) extra.push(esc(Math.floor(title.runtimeMinutes / 60) ? Math.floor(title.runtimeMinutes / 60) + 'h ' + (title.runtimeMinutes % 60) + 'm' : title.runtimeMinutes + 'm'));
+    if (title.genres && title.genres.length) extra.push(esc(title.genres.slice(0, 2).join(', ')));
+    return html + (extra.length ? '<span class="rating-extra">' + extra.join('<i>·</i>') + '</span>' : '');
+  }
+  function addRatings(title) {
+    var el = document.getElementById('title-ratings');
+    if (el) el.innerHTML = ratingsHtml(title);
+  }
+
+  // ---------- trailers ----------
+  // mediastorm lists trailers (mostly YouTube) with each title. They play in
+  // YouTube's embedded player inside the app; if YouTube refuses that, they
+  // open in the TV's YouTube app instead.
+  function trailerKey(title) {
+    var list = [];
+    if (title && title.primaryTrailer) list.push(title.primaryTrailer);
+    list = list.concat((title && title.trailers) || []);
+    var yt = list.filter(function (t) { return t && /youtube/i.test((t.site || '') + ' ' + (t.url || '')); });
+    yt.sort(function (a, b) {
+      var score = function (t) { return (/trailer/i.test(t.type || t.name || '') ? 2 : 0) + (t.official ? 1 : 0); };
+      return score(b) - score(a);
+    });
+    var t = yt[0];
+    if (!t) return null;
+    if (t.key && /^[\w-]{6,}$/.test(t.key)) return t.key;
+    var m = String(t.url || t.embedUrl || '').match(/(?:v=|youtu\.be\/|embed\/)([\w-]{6,})/);
+    return m ? m[1] : null;
+  }
+  function addTrailerButton(item, title) {
+    var key = trailerKey(title), actions = document.getElementById('actions');
+    if (!key || !actions || actions.querySelector('.trailer-btn')) return;
+    var b = document.createElement('button');
+    b.className = 'btn trailer-btn'; b.setAttribute('data-focus', ''); b.textContent = 'Trailer';
+    b.addEventListener('click', function () { playTrailer(item, key); });
+    var choose = actions.querySelector('.btn:not(.primary):not(.quiet)');
+    actions.insertBefore(b, choose ? choose.nextSibling : null);
+  }
+
+  var ytBridge = null;   // kept so the call isn't dropped before it answers
+  function openInYouTubeApp(item, key) {
+    function failed(why) {
+      choiceBox('Couldn\'t play the trailer', 'YouTube wouldn\'t play it here, and the TV\'s YouTube app couldn\'t be opened' +
+        (why ? ' (' + why + ')' : '') + '. Is the YouTube app installed?', []);
+    }
+    if (typeof PalmServiceBridge === 'undefined') { failed('not running on a webOS TV'); return; }
+    try {
+      ytBridge = new PalmServiceBridge();
+      ytBridge.onservicecallback = function (msg) {
+        var r = {}; try { r = JSON.parse(msg); } catch (e) { /* ignore */ }
+        if (r.returnValue === false) failed(r.errorText || 'refused');
+      };
+      ytBridge.call('luna://com.webos.applicationManager/launch',
+        JSON.stringify({ id: 'youtube.leanback.v4', params: { contentTarget: 'v=' + key } }));
+      toast('Opening the trailer in YouTube. Back or the home bar brings you back here.');
+    } catch (e) { failed(e.message); }
+  }
+
+  function playTrailer(item, key) {
+    var back = document.activeElement, prevBack = Nav.currentBack ? Nav.currentBack() : null;
+    var box = document.createElement('div');
+    box.id = 'trailer';
+    box.innerHTML = '<iframe allow="autoplay; encrypted-media" allowfullscreen ' +
+      'src="https://www.youtube.com/embed/' + encodeURIComponent(key) +
+      '?autoplay=1&enablejsapi=1&controls=0&rel=0&playsinline=1&iv_load_policy=3"></iframe>' +
+      '<div class="trailer-keep" tabindex="0" data-focus></div>' +
+      '<div class="trailer-hint">' + esc(item.name) + ' · trailer. OK pauses, Back closes</div>';
+    document.body.appendChild(box);
+    var frame = box.querySelector('iframe'), keep = box.querySelector('.trailer-keep');
+    Nav.setScope(box);
+    keep.focus();
+    var playing = false, paused = false, at = 0, done = false;
+    function post(func, args) {
+      try { frame.contentWindow.postMessage(JSON.stringify({ event: 'command', func: func, args: args || [] }), '*'); } catch (e) { /* not ready */ }
+    }
+    function onMessage(e) {
+      if (!/youtube/.test(e.origin || '')) return;
+      var d; try { d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data; } catch (x) { return; }
+      if (!d) return;
+      if (d.event === 'onError') { fallback(); return; }
+      var info = d.info || {};
+      if (d.event === 'onStateChange') info = { playerState: d.info };
+      if (typeof info.currentTime === 'number') at = info.currentTime;
+      if (info.playerState === 1) { playing = true; paused = false; }
+      else if (info.playerState === 2) paused = true;
+      else if (info.playerState === 0) close();   // finished
+    }
+    window.addEventListener('message', onMessage);
+    frame.addEventListener('load', function () {
+      try { frame.contentWindow.postMessage(JSON.stringify({ event: 'listening', id: 1, channel: 'widget' }), '*'); } catch (e) { /* ignore */ }
+    });
+    var watchdog = setTimeout(function () { if (!playing) fallback(); }, 9000);   // YouTube said nothing: try its app
+    var refocus = setInterval(function () { if (document.activeElement !== keep) keep.focus(); }, 400);   // keep the remote's keys here
+    function onKey(e) {
+      var k = e.keyCode;
+      e.preventDefault(); e.stopImmediatePropagation();
+      if (k === 461 || k === 27 || k === 8) close();
+      else if (k === 13 || k === 415 || k === 19 || k === 10252) { post(paused ? 'playVideo' : 'pauseVideo'); paused = !paused; }
+      else if (k === 37 || k === 412) post('seekTo', [Math.max(0, at - 10), true]);
+      else if (k === 39 || k === 417) post('seekTo', [at + 10, true]);
+    }
+    document.addEventListener('keydown', onKey, true);
+    function close() {
+      if (done) return;
+      done = true;
+      clearTimeout(watchdog); clearInterval(refocus);
+      window.removeEventListener('message', onMessage);
+      document.removeEventListener('keydown', onKey, true);
+      if (box.parentNode) box.parentNode.removeChild(box);
+      Nav.setScope(view);
+      Nav.onBack(prevBack);
+      if (back && document.body.contains(back)) Nav.focus(back); else Nav.first();
+    }
+    function fallback() {
+      if (done) return;
+      close();
+      openInYouTubeApp(item, key);
+    }
+  }
+
+  // Adds the Cast row (and In this collection, for films) below the fold of a
+  // film or series page. Moving down into it slides the page up.
+  async function addTitleExtras(item, details) {
+    var title = details || await titleDetailsCached(item);
+    var main = document.getElementById('play-main');
+    if (!main || !document.body.contains(main)) return;
+    addRatings(title);
+    addTrailerButton(item, title);
+    var cast = castOf(title);
+    var others = [];
+    if (item.kind === 'movie' && title && title.collection && title.collection.id) {
+      var col = await Api.collectionDetails(title.collection.id, profile.id).catch(function () { return null; });
+      if (!document.body.contains(main)) return;
+      others = ((col && col.movies) || []).map(fromTitle).filter(function (m) { return m.titleId !== item.titleId; });
+      others.colName = (col && col.name) || title.collection.name || 'this collection';
+    }
+    if (!cast.length && !others.length) return;
+    // Films have room for the rows on screen, under the Play buttons; series
+    // keep them below the fold, past the episodes.
+    var film = item.kind === 'movie';
+    var html = '<div class="title-extras' + (film ? ' film' : '') + '" data-vscroll><div class="rows-layer">' +
+      (cast.length ? '<section class="row"><h2>Cast</h2><div class="row-track">' + cast.map(personCard).join('') + '</div></section>' : '') +
+      (others.length ? '<section class="row"><h2>' + esc('In ' + others.colName) + '</h2><div class="row-track">' + others.map(posterCard).join('') + '</div></section>' : '') +
+      '</div></div>';
+    view.insertAdjacentHTML('beforeend', html + (film ? '' :
+      '<div class="extras-hint">▼ ' + (cast.length ? 'Cast and more' : esc('More in ' + others.colName)) + '</div>'));
+    var box = view.querySelector('.title-extras');
+    if (film) {   // start just under the buttons, however tall the title and text are
+      var ROW_H = 330, a = document.getElementById('actions').getBoundingClientRect();
+      if (a.bottom + 24 + ROW_H > window.innerHeight) {
+        // A long title or text: shrink them so a whole row of cast still fits.
+        var body = view.querySelector('.title-body');
+        body.classList.add('tight');
+        moreTag(body.querySelector('.overview'), item.name, function () { return item.overview; });
+        a = document.getElementById('actions').getBoundingClientRect();
+      }
+      box.style.top = Math.round(a.bottom + 24) + 'px';
+    }
+    var keep = titleReturn;
+    function backHere() { titleReturn = keep; renderTitle(item); }
+    box.querySelectorAll('[data-p]').forEach(function (b) {
+      b.addEventListener('click', function () { openPerson(cast[+b.getAttribute('data-p')], backHere); });
+    });
+    box.querySelectorAll('[data-t]').forEach(function (b) {
+      b.addEventListener('click', function () { openTitle(others[+b.getAttribute('data-t')], backHere); });
+    });
+  }
+  // The page slides up while focus is in the extras, and back when it leaves.
+  view.addEventListener('focusin', function (e) {
+    if (!view.classList.contains('screen-title')) { view.classList.remove('extras-on'); return; }
+    view.classList.toggle('extras-on', !!(e.target.closest && e.target.closest('.title-extras:not(.film)')));
+    view.scrollTop = 0; document.documentElement.scrollTop = 0; document.body.scrollTop = 0;
+  });
+
+  // A person's page: photo, a short bio, and what else they've been in, as
+  // rows of films and series. Back returns to wherever they were opened from.
+  var personCache = {};
+  async function openPerson(p, back) {
+    Nav.onBack(function () { if (back) back(); else renderHome(); });
+    show(HOME_PILL + '<div class="person-head"><div class="person-photo">' + (p.photo ? imgTag(p.photo, 'w342', false) : '') + '</div>' +
+      '<div><h1>' + esc(p.name) + '</h1><p class="meta" id="person-meta">' + esc(p.character ? 'Plays ' + p.character : '') + '</p>' +
+      '<p class="bio" id="person-bio"></p></div></div>' +
+      '<div id="person-rows" data-vscroll><div class="rows-layer"><p class="muted" style="margin-left:var(--pad)">Loading</p></div></div>', 'screen-person');
+    Nav.focus(document.getElementById('go-home'));
+    var key = String(p.id);
+    if (!personCache[key]) personCache[key] = Api.personDetails(p.id, profile.id).catch(function (e) { delete personCache[key]; return { error: e }; });
+    var d = await personCache[key];
+    var layer = view.querySelector('#person-rows .rows-layer');
+    if (!layer) return;   // left the page while loading
+    if (!d || d.error) {
+      Nav.focus(document.getElementById('go-home'));
+      layer.innerHTML = '<p class="error" style="margin-left:var(--pad)">Couldn\'t load ' + esc(p.name) + '\'s films and series.</p>';
+      return;
+    }
+    var info = d.person || {};
+    var bits = [];
+    if (info.knownFor) bits.push(info.knownFor === 'Acting' ? 'Actor' : info.knownFor);
+    if (info.birthday) bits.push('Born ' + info.birthday.slice(0, 4) + (info.placeOfBirth ? ', ' + info.placeOfBirth : ''));
+    document.getElementById('person-meta').textContent = bits.join(' · ') || (p.character ? 'Plays ' + p.character : '');
+    document.getElementById('person-bio').textContent = info.biography || '';
+    var seen = {}, all = (d.filmography || []).filter(function (t) {
+      if (!t || !t.id || t.mediaType === 'person' || seen[t.id]) return false;
+      return (seen[t.id] = true);
+    }).map(fromTitle);
+    var films = all.filter(function (t) { return t.kind === 'movie'; }).slice(0, 30);
+    var series = all.filter(function (t) { return t.kind !== 'movie'; }).slice(0, 30);
+    var list = [];
+    function row(name, items) {
+      if (!items.length) return '';
+      var start = list.length;
+      list = list.concat(items);
+      return '<section class="row"><h2>' + esc(name) + '</h2><div class="row-track">' +
+        items.map(function (it, i) { return posterCard(it, start + i); }).join('') + '</div></section>';
+    }
+    layer.innerHTML = (row('Films', films) + row('Series', series)) ||
+      '<p class="muted" style="margin-left:var(--pad)">Nothing else listed for ' + esc(p.name) + '.</p>';
+    function backToPerson() { openPerson(p, back); }
+    layer.querySelectorAll('[data-t]').forEach(function (b) {
+      b.addEventListener('click', function () { openTitle(list[+b.getAttribute('data-t')], backToPerson); });
+    });
+    var firstCard = layer.querySelector('[data-t]');
+    if (firstCard) Nav.focus(firstCard); else Nav.focus(document.getElementById('go-home'));
+  }
+
+  function addRemoveContinue(item, actions) {
+    if (!inContinue(item)) return;
+    var b = document.createElement('button');
+    b.className = 'btn quiet'; b.setAttribute('data-focus', ''); b.textContent = 'Remove from Continue watching';
+    b.addEventListener('click', function () {
+      askRemoveContinue(item, function () {
+        if (!document.body.contains(b)) return;
+        Nav.focus(document.getElementById('play-main'));
+        b.parentNode.removeChild(b);
+      });
+    });
+    actions.appendChild(b);
+  }
+
   async function renderMovie(item, message) {
     Nav.onBack(function () { goBackFromTitle(); });
     show(titleShell(item, message), 'screen-title');
+    moreTag(view.querySelector('.title-body .overview'), item.name, function () { return item.overview; });
     var actions = document.getElementById('actions');
     var main = document.getElementById('play-main');
     main.addEventListener('click', function () { play(item, { resume: true }); });
     var choose = pickerButton(function () { renderPicker(item, null, function () { renderMovie(item); }); });
     actions.appendChild(choose);
+    addRemoveContinue(item, actions);
+    addTitleExtras(item);
     Nav.first();
     var over = null;
     async function applyProgress() {
@@ -470,6 +974,7 @@
         '<div class="row-track episodes" id="episodes" data-up=".tab.current"></div>' +
         '<p class="ep-overview" id="ep-overview"></p>' +
       '</div>'), 'screen-title');
+    moreTag(view.querySelector('.title-body .overview'), item.name, function () { return item.overview; });
     var main = document.getElementById('play-main');
     main.textContent = item.next ? 'Play S' + item.next.season + ' E' + item.next.episode + (item.next.title ? ': ' + item.next.title : '') : 'Play next episode';
     main.addEventListener('click', function () { play(item, { resume: true, episode: item.next }); });
@@ -481,6 +986,7 @@
       renderPicker(item, ep, function () { renderSeries(item, null, ep); });
     });
     document.getElementById('actions').appendChild(choose);
+    addRemoveContinue(item, document.getElementById('actions'));
     function labelChoose() { choose.textContent = pickFor ? 'Choose release: S' + pickFor.season + ' E' + pickFor.episode : 'Choose release'; }
     labelChoose();
     Nav.first();
@@ -493,6 +999,7 @@
     ]);
     var details = await seriesDetailsCached(item);
     if (!document.body.contains(main)) return;   // left the page while loading
+    if (details && !details.error) addTitleExtras(item, details.title || null);
     if (!details || details.error || !details.seasons) {
       document.getElementById('seasons').innerHTML = '<span class="muted">Couldn\'t load the episode list.</span>';
       return;
@@ -540,7 +1047,7 @@
       epsEl.querySelectorAll('.card').forEach(function (c) {
         c.addEventListener('click', function () {
           var ep = se.episodes[+c.getAttribute('data-ep')];
-          play(item, { resume: true, episode: { season: ep.seasonNumber, episode: ep.episodeNumber, title: ep.name || '' } });
+          play(item, { resume: true, episode: { season: ep.seasonNumber, episode: ep.episodeNumber, title: ep.name || '', aired: (ep.airedDate || '').slice(0, 10) } });
         });
       });
       if (focusedEp != null) { var again = epsEl.querySelector('[data-ep="' + focusedEp + '"]'); if (again) again.focus({ preventScroll: true }); }
@@ -589,7 +1096,7 @@
       var card = e.target.closest('.card.ep');
       if (card) {
         var ep = seasons[shownSeason].episodes[+card.getAttribute('data-ep')];
-        pickFor = { season: ep.seasonNumber, episode: ep.episodeNumber, title: ep.name || '' };
+        pickFor = { season: ep.seasonNumber, episode: ep.episodeNumber, title: ep.name || '', aired: (ep.airedDate || '').slice(0, 10) };
         labelChoose();
         var bits = [];
         if (ep.airedDate) {
@@ -599,6 +1106,8 @@
         if (ep.runtimeMinutes) bits.push(ep.runtimeMinutes + ' min');
         var el = document.getElementById('ep-overview');
         el.innerHTML = (bits.length ? '<span class="muted">' + esc(bits.join(', ')) + '</span><br>' : '') + esc(ep.overview || '');
+        var epName = 'S' + ep.seasonNumber + ' E' + ep.episodeNumber + (ep.name ? ': ' + ep.name : ''), epText = ep.overview || '';
+        moreTag(el, epName, function () { return epText; });
       }
     });
 
@@ -719,14 +1228,20 @@
       item: item, episode: opts.episode || null, profileId: profile.id, clientId: saved.clientId,
       resume: opts.resume, startAt: opts.startAt, manual: opts.manual || null,
       nextEpisode: item.kind === 'movie' ? null : function (ep) { return nextEpisodeAfter(item, ep); },
+      cast: function () { return titleDetailsCached(item).then(castOf); },
+      onPerson: function (person, played) {   // picked from the cast while paused: progress is already saved
+        homeStale = true;
+        openPerson(person, function () { titleReturn = keepReturn; renderTitle(item, null, played && played.episode); });
+      },
       onExit: function (message, played) {
         homeStale = true;   // watch history changed: refresh quietly next time home shows
         titleReturn = keepReturn;
         var page = livePage;
-        if (page && page.item === item && document.body.contains(page.node) && view.className === 'screen-title') {
+        if (page && page.item === item && document.body.contains(page.node) && view.classList.contains('screen-title')) {
           Nav.onBack(function () { goBackFromTitle(); });
-          page.restore(message, played && played.episode, from);
-        } else renderTitle(item, message, played && played.episode);
+          page.restore(null, played && played.episode, from);
+        } else renderTitle(item, null, played && played.episode);
+        if (message) showPlayError(item, (played && played.episode) || opts.episode || null, message);
       }
     });
   }
@@ -800,17 +1315,91 @@
 
     var pad2 = function (n) { return (n < 10 ? '0' : '') + n; };
     var query = item.name + (episode ? ' S' + pad2(episode.season) + 'E' + pad2(episode.episode) : '');
-    var res;
-    try {
-      res = await Api.releases({ query: query, mediaType: item.kind === 'movie' ? 'movie' : 'series', userId: profile.id,
-        clientId: saved.clientId, imdbId: item.imdb, titleId: item.titleId, year: item.year });
-    } catch (e) {
-      if (view.className !== 'screen-picker') return;
-      document.getElementById('picker-status').textContent = 'The search failed: ' + e.message;
+    // Specials (season 0) are often named by title or air date, so search those too.
+    var special = episode && episode.season === 0, keyWords = [], dateKey = '', part = null;
+    var queries = [{ q: query, ids: true }];
+    if (special) {
+      var t = String(episode.title || '').trim();
+      part = (t.match(/\((\d+)\)\s*$/) || [])[1] || null;
+      var bare = t.replace(/\s*\((\d+)\)\s*$/, '');
+      // Words that pick out this special's releases: in its title, not the show's name.
+      var nameWords = item.name.toLowerCase().split(/[^a-z0-9]+/);
+      var COMMON = ['the', 'and', 'of', 'a', 'in', 'on', 'to', 'part', 'special', 'murder', 'episode'];
+      keyWords = bare.toLowerCase().split(/[^a-z0-9]+/).filter(function (w) {
+        return w.length > 2 && COMMON.indexOf(w) < 0 && nameWords.indexOf(w) < 0;
+      });
+      if (/^\d{4}-\d{2}-\d{2}$/.test(episode.aired || '')) dateKey = episode.aired;
+      // Best guesses first. The special's own words, like an indexer search for
+      // "rikki neave", find it however its releases are numbered (All 4 called
+      // that one S04E01); with the show's name in the query, mediastorm
+      // recognises the series and searches all of it instead.
+      queries = [];
+      if (keyWords.length) {
+        if (part) queries.push({ q: keyWords.join(' ') + ' Part ' + part });
+        queries.push({ q: keyWords.join(' ') });
+      }
+      queries.push({ q: query, ids: true });
+      if (bare) {
+        queries.push({ q: item.name + ' ' + bare });
+        if (part) queries.push({ q: item.name + ' ' + bare + ' S01E' + pad2(+part) });   // listed as its own show
+      }
+      if (dateKey) queries.push({ q: item.name + ' ' + dateKey.replace(/-/g, '.') });
+      document.getElementById('picker-status').textContent = 'Searching for this special by name, number and air date';
+    }
+
+    // For a special, keep only releases that name it or its air date (and the
+    // right part of a two-parter); the rest are usually other episodes.
+    var d1 = dateKey.replace(/-/g, '.'), d2 = dateKey.replace(/-/g, ' ');
+    function matches(r) {
+      var n = String(r.title || '').toLowerCase(), flat = ' ' + n.replace(/[^a-z0-9]+/g, ' ') + ' ';
+      if (part) { var m = flat.match(/ part (\d+) /); if (m && +m[1] !== +part) return false; }
+      if (dateKey && (n.indexOf(d1) >= 0 || flat.indexOf(' ' + d2 + ' ') >= 0 || n.indexOf(dateKey) >= 0)) return true;
+      return keyWords.length > 0 && keyWords.every(function (w) { return flat.indexOf(' ' + w + ' ') >= 0; });
+    }
+    var filterSpecial = special && (keyWords.length || dateKey);
+
+    // Searches go two at a time, and stop once a special has been found, so
+    // indexers aren't hit with a burst (they slow down or refuse when they are).
+    var list = [], seenRel = {}, failed = null, firstError = null;
+    function add(res) {
+      (Array.isArray(res) ? res : (res && res.results) || []).forEach(function (r) {
+        var k = r.guid || r.link || r.downloadUrl || r.title;
+        if (k && seenRel[k]) return;
+        if (k) seenRel[k] = true;
+        list.push(r);
+      });
+    }
+    for (var qi = 0; qi < queries.length; qi += 2) {
+      var batch = queries.slice(qi, qi + 2);
+      var got = await Promise.all(batch.map(function (q) {
+        return Api.releases({ query: q.q, mediaType: item.kind === 'movie' ? 'movie' : 'series', userId: profile.id,
+          clientId: saved.clientId, imdbId: q.ids ? item.imdb : null, titleId: q.ids ? item.titleId : null, year: q.ids ? item.year : null })
+          .catch(function (e) { firstError = firstError || e; return []; });
+      }));
+      if (view.className !== 'screen-picker') return;   // went back while searching
+      got.forEach(add);
+      if (!filterSpecial || list.some(matches)) break;
+    }
+    if (!list.length && firstError) failed = firstError;
+    var picker = document.getElementById('picker-list');
+    function searchAgainButton() {
+      var again = document.createElement('button');
+      again.className = 'btn primary'; again.setAttribute('data-focus', ''); again.textContent = 'Search again';
+      again.addEventListener('click', function () { renderPicker(item, episode, back); });
+      picker.appendChild(again);
+      return again;
+    }
+    if (failed) {
+      document.getElementById('picker-status').textContent = 'The search failed: ' + failed.message;
+      Nav.focus(searchAgainButton());
       return;
     }
-    if (view.className !== 'screen-picker') return;   // went back while searching
-    var list = Array.isArray(res) ? res : (res && res.results) || [];
+    if (special) query = 'this special';
+    var others = [];
+    if (filterSpecial) {
+      others = list.filter(function (r) { return !matches(r); });
+      list = list.filter(matches);
+    }
 
     // mediastorm's own ranking order, which already reflects your Usenet versus
     // debrid priority. Releases its filters would skip go last.
@@ -819,47 +1408,75 @@
       .sort(function (a, b) { return rank(a.r) - rank(b.r) || a.i - b.i; })
       .map(function (x) { return x.r; });
     if (!ordered.length) {
-      document.getElementById('picker-status').textContent = 'No releases found for ' + query + '.';
+      document.getElementById('picker-status').textContent = others.length
+        ? 'No releases name this special or its air date. The ' + others.length + ' found are other episodes of the series.'
+        : 'No releases found for ' + query + '. Indexers sometimes miss a search, so it\'s worth trying again.';
+      var again = searchAgainButton();
+      if (others.length) {
+        var showAll = document.createElement('button');
+        showAll.className = 'btn'; showAll.setAttribute('data-focus', ''); showAll.textContent = 'Show them anyway';
+        showAll.addEventListener('click', function () {
+          picker.innerHTML = '';
+          drawList(others.map(function (r, i) { return { r: r, i: i }; })
+            .sort(function (x, y) { return rank(x.r) - rank(y.r) || x.i - y.i; }).map(function (x) { return x.r; }));
+        });
+        picker.appendChild(showAll);
+      }
+      Nav.focus(again);
       return;
     }
-    var passed = ordered.filter(function (r) { return r.filterStatus !== 'filtered'; }).length;
-    document.getElementById('picker-status').textContent = ordered.length + (ordered.length === 1 ? ' release' : ' releases') +
-      (passed < ordered.length ? ', ' + (ordered.length - passed) + ' of them filtered out by your mediastorm settings' : '') + '.';
+    drawList(ordered);
+    function drawList(ordered) {
+      var passed = ordered.filter(function (r) { return r.filterStatus !== 'filtered'; }).length;
+      document.getElementById('picker-status').textContent = ordered.length + (ordered.length === 1 ? ' release' : ' releases') +
+        (passed < ordered.length ? ', ' + (ordered.length - passed) + ' of them filtered out by your mediastorm settings' : '') + '.';
 
-    var box = document.getElementById('picker-list');
-    box.innerHTML = ordered.map(function (r, i) {
-      var d = describeRelease(r);
-      var filtered = r.filterStatus === 'filtered';
-      var tags = d.main.map(function (t) { return '<b>' + esc(t) + '</b>'; }).join('');
-      var meta = [d.service, d.size].concat(d.extra, d.langs, d.group ? [d.group] : []).filter(Boolean)
-        .map(function (t) { return '<i>' + esc(t) + '</i>'; }).join('');
-      return '<button class="release' + (filtered ? ' filtered' : '') + (d.debrid ? ' debrid' : '') + '" data-focus data-r="' + i + '">' +
-        '<span class="tags">' + (tags || '<b>Unknown quality</b>') + '</span>' +
-        '<span class="meta-tags">' + meta + '</span>' +
-        (filtered ? '<span class="why">Filtered: ' + esc(r.filterReason || 'excluded by your settings') + '</span>' : '') +
-        '<span class="name">' + esc(r.title || '') + '</span></button>';
-    }).join('');
-    box.querySelectorAll('.release').forEach(function (b) {
-      b.addEventListener('click', function () {
-        var chosen = ordered[+b.getAttribute('data-r')];
-        // If your pick fails, the app falls back to the next releases mediastorm would use.
-        var rest = ordered.filter(function (r) { return r !== chosen && r.filterStatus !== 'filtered'; });
-        titleReturn = titleReturn || null;
-        play(item, { resume: true, episode: episode, manual: { releases: [chosen].concat(rest) } });
+      var box = document.getElementById('picker-list');
+      box.innerHTML = ordered.map(function (r, i) {
+        var d = describeRelease(r);
+        var filtered = r.filterStatus === 'filtered';
+        var tags = d.main.map(function (t) { return '<b>' + esc(t) + '</b>'; }).join('');
+        var meta = [d.service, d.size].concat(d.extra, d.langs, d.group ? [d.group] : []).filter(Boolean)
+          .map(function (t) { return '<i>' + esc(t) + '</i>'; }).join('');
+        return '<button class="release' + (filtered ? ' filtered' : '') + (d.debrid ? ' debrid' : '') + '" data-focus data-r="' + i + '">' +
+          '<span class="tags">' + (tags || '<b>Unknown quality</b>') + '</span>' +
+          '<span class="meta-tags">' + meta + '</span>' +
+          (filtered ? '<span class="why">Filtered: ' + esc(r.filterReason || 'excluded by your settings') + '</span>' : '') +
+          '<span class="name">' + esc(r.title || '') + '</span></button>';
+      }).join('');
+      box.querySelectorAll('.release').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var chosen = ordered[+b.getAttribute('data-r')];
+          // If your pick fails, the app falls back to the next releases mediastorm would use.
+          var rest = ordered.filter(function (r) { return r !== chosen && r.filterStatus !== 'filtered'; });
+          titleReturn = titleReturn || null;
+          play(item, { resume: true, episode: episode, manual: { releases: [chosen].concat(rest) } });
+        });
       });
-    });
-    Nav.focus(box.querySelector('.release'));
+      Nav.focus(box.querySelector('.release'));
+    }
   }
 
   // ---------- search ----------
   // Typing searches titles as before. Ask AI sends the same text to the AI set
   // up in mediastorm as a description instead ("slow-burn sci-fi like Arrival"),
-  // and the suggestions offer common asks in one press. Speak opens LG's own
-  // keyboard, whose microphone key can dictate the request.
+  // and the suggestions offer common asks in one press. Speak listens through
+  // the remote (or, where that's unavailable, opens LG's keyboard and its
+  // microphone key): what's said is searched as a title, and goes to the AI
+  // only if no title matches.
   var searchState = { query: '', results: [], focusKey: null, mode: 'title', aiQuery: '', status: '' };
   var KEYS = 'abcdefghijklmnopqrstuvwxyz1234567890'.split('');
   var aiCache = {};
   var keyboardClosed = null;
+  var srBroken = false;   // speech recognition failed this session: use the keyboard
+  var listening = null;   // { rec, finish } while Speak is listening
+  // cancel = true drops what was heard (Back, leaving); false keeps it (Speak again).
+  function stopListening(cancel) {
+    if (!listening) return;
+    var l = listening;
+    try { if (cancel) l.rec.abort(); else l.rec.stop(); } catch (e) { /* already ended */ }
+    if (cancel) l.finish();
+  }
 
   function suggestions() {
     var list = [];
@@ -871,20 +1488,23 @@
   }
 
   function renderSearch() {
-    Nav.onBack(function () { document.removeEventListener('keydown', typeKey); renderHome(); });
+    function leaveSearch() { stopListening(true); document.removeEventListener('keydown', typeKey); renderHome(); }
+    Nav.onBack(leaveSearch);
     show(
       '<div class="search">' +
         '<div class="search-left">' +
           '<div class="search-query" id="search-query"></div>' +
-          '<div class="keys">' + KEYS.map(function (k) {
-            return '<button class="key" data-focus data-k="' + k + '">' + k.toUpperCase() + '</button>';
-          }).join('') +
+          // Speak and Ask AI sit on top, so voice search is OK and talk.
+          '<div class="keys">' +
+            '<div class="key half voice" data-focus tabindex="0" id="speak"><span id="speak-label">Speak</span>' +
+              '<input type="text" id="speak-input" autocomplete="off" spellcheck="false" aria-label="Describe what you want to watch"></div>' +
+            '<button class="key half ai" data-focus id="ask-ai">Ask AI</button>' +
+            KEYS.map(function (k) {
+              return '<button class="key" data-focus data-k="' + k + '">' + k.toUpperCase() + '</button>';
+            }).join('') +
             '<button class="key wide" data-focus data-k=" ">Space</button>' +
             '<button class="key wide" data-focus data-k="del">Delete</button>' +
             '<button class="key wide" data-focus data-k="clear">Clear</button>' +
-            '<button class="key half ai" data-focus id="ask-ai">Ask AI</button>' +
-            '<div class="key half voice" data-focus tabindex="0" id="speak">Speak' +
-              '<input type="text" id="speak-input" autocomplete="off" spellcheck="false" aria-label="Describe what you want to watch"></div>' +
           '</div>' +
         '</div>' +
         '<div class="search-right"><p class="search-caption" id="search-caption"></p>' +
@@ -913,13 +1533,81 @@
       Nav.focus(speak);
       if (!v || v === sent) return;
       sent = v;
-      searchState.query = v.slice(0, 200);
-      drawQuery();
-      runAI(searchState.query);
+      searchSpoken(v);
     }
-    speak.addEventListener('click', function () {
+    // What you say is treated like typing: a title search. If no title matches,
+    // it was probably a description, so it goes to the AI instead. Ask AI
+    // sends the same words to the AI on purpose.
+    function searchSpoken(v) {
+      searchState.query = v.slice(0, 200);
+      searchState.mode = 'title';
+      searchState.status = '';
+      drawQuery();
+      clearTimeout(searchTimer);
+      runSearch(searchState.query.trim(), true);
+    }
+    function openKeyboard() {
+      speakInput.style.pointerEvents = '';
       sent = ''; lastVal = speakInput.value = '';   // a spoken request starts fresh
       speakInput.focus();
+    }
+
+    // Speak listens directly through the remote's microphone where the TV's web
+    // engine offers speech recognition (webOS 25 does); otherwise, or if it
+    // fails, it falls back to LG's keyboard and its microphone key.
+    var SR = !srBroken && (window.SpeechRecognition || window.webkitSpeechRecognition);
+    var label = document.getElementById('speak-label');
+    if (SR) speakInput.style.pointerEvents = 'none';   // a pointer click listens rather than opening the keyboard
+    function setListening(on) {
+      listening = on ? listening : null;
+      speak.classList.toggle('listening', !!on);
+      label.textContent = on ? 'Listening… talk now' : 'Speak';
+      Nav.onBack(on ? function () { stopListening(true); } : leaveSearch);
+    }
+    function listen() {
+      var rec, heard = '', done = false;
+      try { rec = new SR(); } catch (e) { srBroken = true; openKeyboard(); return; }
+      rec.lang = (navigator.language || 'en-GB');
+      rec.interimResults = true;
+      rec.maxAlternatives = 1;
+      function finish() {
+        if (done) return;
+        done = true;
+        setListening(false);
+        var v = heard.trim();
+        if (v) searchSpoken(v);
+        else setStatus('Didn\'t catch that. Press Speak and try again.');
+      }
+      rec.onresult = function (e) {
+        var t = '', final = false;
+        for (var i = 0; i < e.results.length; i++) { t += e.results[i][0].transcript; final = e.results[i].isFinal; }
+        heard = t;
+        searchState.query = t.slice(0, 200); searchState.mode = 'title'; drawQuery();   // words appear as you say them
+        if (final) { try { rec.stop(); } catch (x) { /* ended */ } finish(); }
+      };
+      rec.onerror = function (e) {
+        if (done) return;
+        if (/not-allowed|service-not-allowed|network|audio-capture|language-not-supported/.test(e.error)) {
+          done = true; setListening(false);
+          srBroken = true; speakInput.style.pointerEvents = '';
+          toast('Voice search isn\'t working directly here, so Speak opens LG\'s keyboard instead. Use its microphone key.', 'warn');
+          openKeyboard();
+        } else if (e.error === 'aborted') { done = true; setListening(false); }
+        else finish();   // no-speech and the like: use whatever was heard
+      };
+      rec.onend = finish;
+      var before = searchState.query;
+      listening = { rec: rec, finish: function () {   // cancelled: put back what was there
+        done = true; setListening(false);
+        searchState.query = before; drawQuery();
+      } };
+      setListening(true);
+      setStatus('');
+      try { rec.start(); } catch (e) { done = true; setListening(false); srBroken = true; openKeyboard(); }
+    }
+    speak.addEventListener('click', function () {
+      if (listening) { stopListening(false); return; }   // pressing again stops and searches what was heard
+      if (SR && !srBroken) listen(); else openKeyboard();
     });
     speakInput.addEventListener('input', function () {
       var v = speakInput.value;
@@ -942,7 +1630,7 @@
     drawQuery();
     drawResults();
     var again = searchState.focusKey && view.querySelector('.card[data-key="' + (window.CSS && CSS.escape ? CSS.escape(searchState.focusKey) : searchState.focusKey) + '"]');
-    if (again) Nav.focus(again); else Nav.focus(view.querySelector('.key'));
+    if (again) Nav.focus(again); else Nav.focus(document.getElementById('speak'));
   }
 
   // The remote's number keys (and a USB keyboard, if one's plugged in) type directly.
@@ -988,7 +1676,7 @@
     if (c) c.textContent = text;
   }
 
-  async function runSearch(q) {
+  async function runSearch(q, aiIfNone) {
     var seq = ++searchSeq;
     var box = document.getElementById('search-results');
     if (box && !searchState.results.length) box.innerHTML = '<p class="muted">Searching</p>';
@@ -998,11 +1686,13 @@
     if (seq !== searchSeq) return;   // a newer search has started
     searchState.results = (res || []).filter(function (r) { return r.title && r.title.mediaType !== 'person'; })
       .map(function (r) { return fromTitle(r.title); });
+    if (aiIfNone && !searchState.results.length && q.length >= 3) { runAI(q, true); return; }
     drawResults();
   }
 
-  async function runAI(q) {
+  async function runAI(q, noTitles) {
     clearTimeout(searchTimer);
+    searchState.fellBack = !!noTitles;   // asked because no title matched what was said
     var seq = ++searchSeq;
     searchState.mode = 'ai';
     searchState.aiQuery = q;
@@ -1011,7 +1701,7 @@
     var key = profile.id + '|' + q.toLowerCase();
     var box = document.getElementById('search-results');
     if (!aiCache[key]) {
-      if (box) box.innerHTML = '<p class="muted asking">Asking AI for "' + esc(q) + '"</p>';
+      if (box) box.innerHTML = '<p class="muted asking">' + (noTitles ? 'No titles called that, so asking AI for "' : 'Asking AI for "') + esc(q) + '"</p>';
       setStatus('');
     }
     var res;
@@ -1038,7 +1728,7 @@
     var q = searchState.query.trim();
     var n = searchState.results.length;
     var caption = searchState.mode === 'ai'
-      ? (n ? 'AI picks for "' + searchState.aiQuery + '"' : '')
+      ? (n ? (searchState.fellBack ? 'No titles matched, so here are AI picks for "' : 'AI picks for "') + searchState.aiQuery + '"' : '')
       : (n ? n + (n === 1 ? ' result' : ' results') : '');
     document.getElementById('search-caption').textContent = searchState.status || caption;
     if (!n) {

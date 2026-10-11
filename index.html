@@ -187,6 +187,7 @@
   .key:focus { border-color: var(--bolt); background: var(--panel-up); }
   .key.half { grid-column: span 3; font-size: 26px; display: flex; align-items: center; justify-content: center; position: relative; }
   .key.ai { color: var(--bolt); font-weight: 600; }
+  .key.voice.listening { color: var(--night); background: var(--bolt); font-weight: 600; }
   /* The Speak key holds a real text field so LG's keyboard (and its microphone) can open on it. */
   .key.voice input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0.01; border: 0; padding: 0;
     background: transparent; color: transparent; caret-color: transparent; }
@@ -268,6 +269,72 @@
   #upnext-hint { color: var(--muted); font-size: 24px; margin-top: 18px; }
 
   /* ---------- toast ---------- */
+  /* Cast and collection rows sit below the fold on film and series pages; the
+     page slides up when the remote moves down into them. */
+  .screen-title > .go-home, .screen-title > .title-art, .screen-title > .title-body, .screen-title > .series-browse, .screen-title > .title-extras {
+    transition: transform .22s ease-out; will-change: transform; }
+  #view.extras-on > * { transform: translateY(-600px); }
+  /* The buttons under a title stay on one line; long labels are shortened. */
+  .title-body .actions { white-space: nowrap; width: max-content; max-width: calc(1920px - 2 * var(--pad)); }
+  .title-body .actions .btn { max-width: 620px; overflow: hidden; text-overflow: ellipsis; vertical-align: top; }
+  #confirm p { max-width: 900px; line-height: 1.45; }
+  .meta-row { display: flex; align-items: center; gap: 28px; margin: 0 0 18px; white-space: nowrap; width: max-content; max-width: calc(1920px - 2 * var(--pad)); overflow: hidden; }
+  .meta-row .meta { margin: 0; }
+  .ratings { display: flex; align-items: center; gap: 22px; color: var(--text); font-size: 26px; }
+  .ratings .rating { display: inline-flex; align-items: center; gap: 8px; }
+  .ratings .rating img { height: 28px; width: auto; }
+  .ratings .rating-extra { color: var(--muted); display: inline-flex; align-items: center; gap: 12px; }
+  .ratings .rating-extra i { font-style: normal; opacity: .6; }
+  .ratings .cert { border: 2px solid var(--muted); border-radius: 6px; padding: 0 8px; font-size: 21px; line-height: 1.3; color: var(--text); }
+  .go-home { position: absolute; left: var(--pad); top: 30px; z-index: 3; }
+  .title-extras { position: absolute; left: 0; right: 0; top: 1100px; height: 560px; overflow: hidden; }
+  .title-extras.film { top: 640px; bottom: 0; height: auto; }
+  .title-body.film { top: 140px; }
+  .title-body.film .overview { -webkit-line-clamp: 4; margin-bottom: 40px; }
+  .title-body.film.tight { top: 110px; }
+  .title-body.film.tight h1 { font-size: 56px; margin-bottom: 10px; }
+  .title-body.film.tight .overview { -webkit-line-clamp: 2; margin-bottom: 32px; }
+  .card.person { width: 180px; height: 250px; }
+  .card.person .card-label { padding: 28px 12px 10px; font-size: 20px; line-height: 1.2; }
+  .card.person .card-label em { display: block; margin: 2px 0 0; font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* A person's page */
+  .person-head { position: absolute; left: var(--pad); top: 110px; right: var(--pad); display: flex; gap: 48px; }
+  .person-photo { width: 240px; height: 340px; border-radius: 14px; background: var(--panel); overflow: hidden; flex: none; position: relative; }
+  .person-photo img { width: 100%; height: 100%; object-fit: cover; }
+  .person-head h1 { font-size: 64px; font-weight: 600; margin: 10px 0 10px; }
+  .person-head .bio { color: #D5DBE5; font-size: 24px; line-height: 1.45; max-width: 75ch;
+    display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+  #person-rows { position: absolute; left: 0; right: 0; top: 500px; bottom: 0; overflow: hidden; }
+  /* Cast while paused */
+  #cast-strip { position: absolute; left: 0; right: 0; top: 0; padding: 48px 0 40px; display: none; z-index: 5;
+    background: linear-gradient(rgba(10,14,22,.95), rgba(10,14,22,.85) 75%, rgba(10,14,22,0)); }
+  #cast-strip.on { display: block; }
+  #cast-strip h3 { font-size: 30px; font-weight: 600; margin: 0 0 14px var(--pad); color: var(--muted); }
+  #cast-strip .row-track { overflow: hidden; }
+  #cast-strip .card.sel { border-color: var(--bolt); transform: scale(1.05); }
+  .more-tag { display: block; width: fit-content; margin: -36px 0 28px; padding: 4px 18px; border-radius: 20px; font-size: 22px;
+    background: rgba(34,44,59,.85); color: var(--muted); border: 3px solid transparent; }
+  .more-tag:focus { color: var(--text); border-color: var(--bolt); }
+  .title-body.compact .more-tag { margin: -26px 0 12px; }
+  .ep-overview + .more-tag { margin: 6px var(--pad) 0; }
+  #confirm.textbox .box { width: 1200px; max-width: none; }
+  .textbox-body { font-size: 28px; line-height: 1.5; color: #D5DBE5; max-height: 600px; overflow: hidden; margin: 0 0 32px; white-space: pre-wrap; }
+  .textbox-hint { align-self: center; font-size: 22px; }
+  .extras-hint { position: absolute; right: var(--pad); bottom: 22px; font-size: 22px; color: var(--muted);
+    background: rgba(17,23,34,.8); padding: 6px 18px; border-radius: 20px; transition: opacity .2s; pointer-events: none; }
+  #view.extras-on .extras-hint { opacity: 0; }
+  #trailer { position: fixed; inset: 0; z-index: 60; background: #000; }
+  #trailer iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  .trailer-keep { position: absolute; width: 1px; height: 1px; opacity: 0; }
+  .trailer-hint { position: absolute; left: var(--pad); bottom: 36px; font-size: 22px; color: var(--muted);
+    background: rgba(0,0,0,.6); padding: 6px 16px; border-radius: 16px; pointer-events: none; animation: fadeHint 1s 5s forwards; }
+  @keyframes fadeHint { to { opacity: 0; } }
+  #confirm { position: fixed; inset: 0; z-index: 45; background: rgba(10, 14, 22, .78); display: flex; align-items: center; justify-content: center; }
+  #confirm .box { background: var(--panel); border: 2px solid var(--line); border-radius: 18px; padding: 48px 56px; max-width: 1000px; }
+  #confirm h2 { font-size: 40px; font-weight: 600; margin: 0 0 12px; }
+  #confirm p { color: var(--muted); font-size: 26px; margin: 0 0 36px; }
+  #confirm .actions { display: flex; gap: 20px; }
+  .card.holding { transition: transform 0.7s linear; transform: scale(0.94); }
   #toast { position: fixed; left: 50%; bottom: 60px; transform: translateX(-50%); z-index: 50; max-width: 1400px;
     padding: 20px 32px; border-radius: 14px; background: var(--panel-up); border-left: 8px solid var(--bolt);
     font-size: 26px; display: none; }
@@ -302,7 +369,7 @@
     <div id="osd-source"></div>
     <div id="osd-release"></div>
     <div class="osd-bar"><i id="osd-bar"></i><b id="osd-scrub"></b></div>
-    <div class="osd-foot"><span id="osd-time"></span><span class="osd-hint">Left/right to move, OK to jump. Down for audio and subtitles</span></div>
+    <div class="osd-foot"><span id="osd-time"></span><span class="osd-hint">Left/right to move, OK to jump. Down for audio and subtitles, Up for cast</span></div>
   </div>
   <div id="subs"></div>
   <div id="upnext">
@@ -311,6 +378,7 @@
     <div id="upnext-count"></div>
     <div id="upnext-hint">OK to play now, Back to stop</div>
   </div>
+  <div id="cast-strip"><h3 id="cast-strip-title">Cast</h3><div class="row-track" id="cast-strip-track"></div></div>
   <div id="audio-menu">
     <div id="audio-list"></div>
   </div>
