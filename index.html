@@ -260,6 +260,10 @@
   #spinner { position: absolute; right: var(--pad); top: 80px; width: 26px; height: 26px; border-radius: 50%;
     background: var(--bolt); animation: pulse 1.2s ease-in-out infinite; display: none; }
   #spinner.on { display: block; }
+  #skip-btn { position: absolute; right: var(--pad); bottom: 120px; display: none; z-index: 4; padding: 18px 34px; font-size: 28px; font-weight: 600;
+    background: rgba(17,23,34,.88); color: var(--text); border: 4px solid var(--bolt); border-radius: 12px; }
+  #skip-btn.on { display: block; }
+  #skip-btn::after { content: '  OK'; font-weight: 400; color: var(--muted); font-size: 22px; }
   #upnext { position: absolute; right: var(--pad); bottom: 96px; width: 760px; padding: 36px 44px; border-radius: 16px;
     background: rgba(17,23,34,.94); border-left: 8px solid var(--bolt); display: none; z-index: 6; }
   #upnext.on { display: block; }
@@ -372,6 +376,7 @@
     <div class="osd-foot"><span id="osd-time"></span><span class="osd-hint">Left/right to move, OK to jump. Down for audio and subtitles, Up for cast</span></div>
   </div>
   <div id="subs"></div>
+  <div id="skip-btn">Skip intro</div>
   <div id="upnext">
     <div id="upnext-label">Up next</div>
     <div id="upnext-ep"></div>

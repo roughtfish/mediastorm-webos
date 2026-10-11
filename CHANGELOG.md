@@ -2,6 +2,12 @@
 
 What changed in each version of mediastorm for LG webOS, newest first.
 
+## 1.3.0 (2026-10-11)
+
+- Skip intro and Skip recap: a button appears during an episode's intro or
+  "previously on" recap, and OK jumps past it. It uses the file's chapters or
+  IntroDB/SkipDB, so it appears when either knows the episode.
+
 ## 1.2.2 (2026-10-11)
 
 - Fewer false alarms from the "this release is a picture" check. A cover

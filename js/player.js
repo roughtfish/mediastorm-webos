@@ -817,8 +817,30 @@ var Player = (function () {
     var why = code === 3 ? 'The TV couldn\'t decode this release.' : code === 4 ? 'The TV couldn\'t open this release.' : 'This release failed to play.';
     playNext(s, why);
   });
+  // ---------- skip intro / recap ----------
+  var skipNow = null;   // the stretch the Skip button is offering
+  function updateSkip() {
+    var t = s, c = t && t.current, at = video.currentTime, k = null;
+    if (c && c.skips && !upNext && !scrub && !Audio.isOpen() && !Cast.isOpen()) {
+      k = c.skips.filter(function (x) { return at >= x.start && at < x.end - 2 && x.dismissed !== true; })[0] || null;
+    }
+    if (k === skipNow) return;
+    skipNow = k;
+    var el = $('skip-btn');
+    if (k) { el.textContent = k.type === 'recap' ? 'Skip recap' : 'Skip intro'; el.className = 'on'; }
+    else el.className = '';
+  }
+  function doSkip() {
+    if (!skipNow) return false;
+    var k = skipNow;
+    video.currentTime = Math.min(k.end, video.duration ? video.duration - 1 : k.end);
+    skipNow = null; $('skip-btn').className = '';
+    return true;
+  }
+
   video.addEventListener('timeupdate', function () {
     if (!video.duration) return;
+    updateSkip();
     $('osd-bar').style.width = (100 * video.currentTime / video.duration) + '%';
     if (!scrub) $('osd-time').textContent = fmt(video.currentTime) + ' / ' + fmt(video.duration);
     var t = s;
@@ -861,6 +883,29 @@ var Player = (function () {
     catch (e) { n = n.replace(/[^a-z0-9\u00c0-\uffff]+/g, ' '); }
     return n.trim();
   }
+  var INTRO_TITLES = ['intro', 'opening credits', 'opening titles', 'opening title sequence', 'title sequence', 'op'];
+  var RECAP_TITLES = ['recap', 'previously', 'previously on'];
+  // Intro and recap stretches from the file's chapters: [{ type, start, end }].
+  function skipsFromChapters(chapters, dur) {
+    var out = [];
+    (chapters || []).forEach(function (ch, i) {
+      if (!ch) return;
+      var n = chapterTitle(ch.title);
+      var type = INTRO_TITLES.indexOf(n) >= 0 ? 'intro'
+        : (RECAP_TITLES.indexOf(n) >= 0 || n.indexOf('previously on ') === 0) ? 'recap' : '';
+      if (!type) return;
+      var start = Number(ch.start), next = chapters[i + 1];
+      var end = Number(ch.end) || (next ? Number(next.start) : 0);
+      if (end > start + 5 && end - start < 300 && start < dur * 0.5) out.push({ type: type, start: start, end: end });
+    });
+    return out;
+  }
+  function addSkip(c, type, start, end, dur) {
+    if (!(end > start + 5 && end - start < 300 && start < dur * 0.5)) return;
+    if ((c.skips || []).some(function (k) { return k.type === type; })) return;
+    (c.skips = c.skips || []).push({ type: type, start: start, end: end });
+  }
+
   function creditsFromChapters(chapters, usable) {
     for (var i = 0; i < (chapters || []).length; i++) {
       var ch = chapters[i];
@@ -868,9 +913,11 @@ var Player = (function () {
     }
     return null;
   }
+  // Also finds intros and recaps (for Skip intro), from the same sources.
   async function findCredits(token, c) {
-    if (!token || !c || !token.episode || !token.nextEpisode || c.creditsChecked) return;
+    if (!token || !c || !token.episode || c.creditsChecked) return;
     c.creditsChecked = true;
+    var needCredits = !!token.nextEpisode;
     var current = function () { return s === token && token.current === c; };
     for (var w = 0; w < 20 && !(video.duration > 0 && isFinite(video.duration)); w++) {
       await new Promise(function (ok) { setTimeout(ok, 500); });
@@ -878,32 +925,45 @@ var Player = (function () {
     if (!current() || !(video.duration > 0 && isFinite(video.duration))) return;
     var dur = video.duration;
     var usable = function (sec) { return typeof sec === 'number' && sec > dur * 0.5 && sec < dur - 10; };
-    var use = function (sec) { if (current() && usable(sec)) { token.creditsAt = sec; c.creditsAt = sec; } };
-    if (c.creditsAt) { use(c.creditsAt); return; }
-
+    var use = function (sec) { if (current() && needCredits && usable(sec)) { token.creditsAt = sec; c.creditsAt = sec; } };
     var chapters = (c.info && c.info.chapters) || [];
-    var fromChapters = creditsFromChapters(chapters, usable);
-    if (fromChapters != null) { use(fromChapters); return; }
+    if (!c.skips) c.skips = skipsFromChapters(chapters, dur);
+    var haveSkips = c.skips.length > 0;
+    if (c.creditsAt) { use(c.creditsAt); if (haveSkips) return; }
+
+    var fromChapters = needCredits ? creditsFromChapters(chapters, usable) : null;
+    if (fromChapters != null) use(fromChapters);
+    var creditsDone = !needCredits || !!c.creditsAt;
+    if (creditsDone && haveSkips) return;
 
     var q = { imdbId: token.item.imdb || '', season: token.episode.season, episode: token.episode.episode,
               duration: dur, chapters: chapters };
     var legacy = false;
     try {
       var r = await Api.skipSegments(q);
+      ((r && r.segments) || []).forEach(function (x) {
+        if (x && (x.type === 'intro' || x.type === 'recap')) addSkip(c, x.type, Number(x.start), Number(x.end), dur);
+      });
       var outro = ((r && r.segments) || []).filter(function (x) { return x.type === 'outro'; })[0];
-      if (outro && usable(outro.start)) { use(outro.start); return; }
+      if (!creditsDone && outro && usable(outro.start)) { use(outro.start); return; }
+      if (creditsDone) return;
     } catch (e) {
       legacy = e && (e.status === 404 || e.status === 405);   // server too old for the POST lookup
     }
     if (legacy && q.imdbId && current()) {
       try {
         var g = await Api.skipSegmentsLegacy(q);
+        ['intro', 'recap'].forEach(function (type) {
+          var seg = g && g[type];
+          if (seg && typeof seg.start_ms === 'number' && typeof seg.end_ms === 'number') addSkip(c, type, seg.start_ms / 1000, seg.end_ms / 1000, dur);
+        });
         var ms = g && g.outro && g.outro.start_ms;
-        if (typeof ms === 'number' && usable(ms / 1000)) { use(ms / 1000); return; }
+        if (!creditsDone && typeof ms === 'number' && usable(ms / 1000)) { use(ms / 1000); return; }
+        if (creditsDone) return;
       } catch (e) { /* fall through to detection */ }
     }
 
-    if (!current() || !c.path) return;
+    if (!current() || !c.path || creditsDone) return;
     try {
       var started = await Api.detectCredits(c.path, dur);
       if (!started || started.status === 'disabled') return;
@@ -1067,6 +1127,7 @@ var Player = (function () {
     video.load();
     Audio.close();
     Cast.close();
+    skipNow = null; $('skip-btn').className = '';
     Subs.reset();
     $('player').className = '';
     $('prep').className = '';
@@ -1166,6 +1227,7 @@ var Player = (function () {
       else commitScrub();
     }
     if (k === KEY.BACK || k === KEY.ESC || k === KEY.BACKSPACE || k === KEY.STOP) exit();
+    else if (k === KEY.ENTER && skipNow && !video.paused) doSkip();   // OK presses Skip while it's showing
     else if (k === KEY.ENTER || k === KEY.PLAYPAUSE) { if (video.paused) video.play(); else video.pause(); showOsd(); }
     else if (k === KEY.PLAY) { video.play(); showOsd(); }
     else if (k === KEY.PAUSE) { video.pause(); showOsd(); }

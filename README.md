@@ -69,6 +69,9 @@ Not affiliated with or supported by the mediastorm project. Tested on an LG C5
 - Cast while watching: press Up to pause and see who's in it, and pick someone
   to see what else they've been in. Your place is saved, and Back returns to
   the show
+- Skip intro and Skip recap: a button appears during an episode's intro or
+  "previously on" recap, and OK jumps past it. The times come from the
+  file's chapters or IntroDB/SkipDB, the same sources as Up next
 - Up next: when the credits start, the next episode is offered with a
   10-second countdown while the credits play (OK to play it now, Back to keep
   watching). The credits time comes from the file's own chapters (one named
@@ -128,7 +131,7 @@ Not affiliated with or supported by the mediastorm project. Tested on an LG C5
   profile switcher. Hold OK on a Continue watching card to remove it.
 - On film, series and person pages, Up reaches the Home button at the top,
   and Down reaches the cast.
-- In the player: OK pauses and plays, Down opens the audio and subtitles
+- In the player: OK pauses and plays (or presses Skip intro when it's showing), Down opens the audio and subtitles
   menu, Up shows the cast, Back stops.
 - To move through a video, press left and right (or rewind and fast
   forward): a marker shows where you'll land, and the video jumps there when
