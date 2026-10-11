@@ -1,0 +1,71 @@
+<!doctype html>
+<!--
+  Trailer page for mediastorm for LG webOS.
+
+  YouTube only plays embedded videos on pages that come from a real website
+  (otherwise it shows "Error 153"). The TV app runs from the TV itself, so it
+  shows this page, hosted on GitHub Pages, full-screen instead, and this page
+  holds the YouTube player.
+
+  The app talks to it with postMessage:
+    to this page:   { ms: 'trailer', cmd: 'play' | 'pause' | 'toggle' | 'seekBy', by: seconds }
+    from this page: { ms: 'trailer', event: 'ready' | 'playing' | 'paused' | 'ended' | 'error', code, time }
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>Trailer</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  #player { position: absolute; inset: 0; width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<div id="player"></div>
+<script>
+  var params = new URLSearchParams(location.search);
+  var id = (params.get('v') || '').replace(/[^\w-]/g, '');
+  var player = null;
+  function tell(event, extra) {
+    var msg = { ms: 'trailer', event: event };
+    for (var k in extra || {}) msg[k] = extra[k];
+    try { parent.postMessage(msg, '*'); } catch (e) { /* no parent */ }
+  }
+  function now() { try { return player.getCurrentTime() || 0; } catch (e) { return 0; } }
+
+  window.onYouTubeIframeAPIReady = function () {
+    if (!id) { tell('error', { code: 'no-video' }); return; }
+    player = new YT.Player('player', {
+      width: '100%', height: '100%', videoId: id,
+      playerVars: { autoplay: 1, controls: 0, rel: 0, playsinline: 1, iv_load_policy: 3, modestbranding: 1 },
+      events: {
+        onReady: function () { tell('ready'); try { player.playVideo(); } catch (e) { /* ignore */ } },
+        onStateChange: function (e) {
+          if (e.data === YT.PlayerState.PLAYING) tell('playing', { time: now() });
+          else if (e.data === YT.PlayerState.PAUSED) tell('paused', { time: now() });
+          else if (e.data === YT.PlayerState.ENDED) tell('ended');
+        },
+        onError: function (e) { tell('error', { code: e.data }); }
+      }
+    });
+  };
+
+  window.addEventListener('message', function (e) {
+    var d = e.data;
+    if (!d || d.ms !== 'trailer' || !player) return;
+    try {
+      if (d.cmd === 'play') player.playVideo();
+      else if (d.cmd === 'pause') player.pauseVideo();
+      else if (d.cmd === 'toggle') { if (player.getPlayerState() === YT.PlayerState.PLAYING) player.pauseVideo(); else player.playVideo(); }
+      else if (d.cmd === 'seekBy') player.seekTo(Math.max(0, now() + (+d.by || 0)), true);
+    } catch (x) { /* player not ready */ }
+  });
+
+  var s = document.createElement('script');
+  s.src = 'https://www.youtube.com/iframe_api';
+  s.onerror = function () { tell('error', { code: 'api-blocked' }); };
+  document.head.appendChild(s);
+</script>
+</body>
+</html>

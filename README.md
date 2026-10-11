@@ -21,8 +21,8 @@ Not affiliated with or supported by the mediastorm project. Tested on an LG C5
 - The background takes a subtle tint from the colours of the focused title's
   backdrop, on the home screen and on film and series pages
 - New episodes and Coming soon rows on the home screen, from mediastorm's
-  calendar: new and upcoming episodes of shows on your watchlist or that
-  you've watched, and upcoming films on your watchlist. Picking a new episode
+  calendar: new and upcoming episodes of shows on your watchlist or in your
+  Continue watching row, and upcoming films on your watchlist. Picking a new episode
   opens its series on that episode
 - + Watchlist on film and series pages adds or removes a title from your
   mediastorm watchlist, the same list your other apps use
@@ -46,10 +46,11 @@ Not affiliated with or supported by the mediastorm project. Tested on an LG C5
   for a season or a film. It syncs to mediastorm, so your other apps follow
 - Pages for actors: pick anyone from a cast row to see their photo, a short
   bio, and everything else they've been in
-- Trailers: a Trailer button on film and series pages plays it in YouTube's
-  embedded player inside the app (OK pauses, left and right skip 10 seconds,
-  Back closes). If YouTube won't play it there, it opens in the TV's YouTube
-  app instead
+- Trailers: a Trailer button on film and series pages plays the trailer
+  inside the app (OK pauses, left and right skip 10 seconds, Back closes).
+  YouTube only plays embedded videos on pages from a real website, so the app
+  shows a small trailer page hosted on GitHub Pages (`docs/trailer.html`; see
+  "Trailers" below). If that fails, the trailer opens in the TV's YouTube app
 - Long descriptions get a More button that shows the full text
 - A Home button at the top of film, series and person pages
 - Remove titles from Continue watching: hold OK on the card, or use the button
@@ -140,6 +141,14 @@ Not affiliated with or supported by the mediastorm project. Tested on an LG C5
 
    On Windows, use `ares-package.cmd` if PowerShell refuses to run scripts.
 3. Install the `.ipk` with webOS Dev Manager or `ares-install`.
+
+## Trailers
+
+Trailers need `docs/trailer.html` published with GitHub Pages: in the
+repository's Settings, open Pages, choose "Deploy from a branch", then the
+`main` branch and the `/docs` folder, and save. The app expects it at
+`https://roughtfish.github.io/mediastorm-webos/trailer.html`. If you host it
+somewhere else, put that address in `trailerPage` in `config.js`.
 
 ## Remote control
 

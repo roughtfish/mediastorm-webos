@@ -116,12 +116,28 @@
       note: dayLabel(it.airDate), focusEp: movie ? null : { season: it.seasonNumber, episode: it.episodeNumber }
     };
   }
-  function calendarRows(id) {
+  // Watchlist shows always count; shows from your watch history count only
+  // while they're in Continue watching, so a show you've removed from there
+  // (or dropped long ago) stops appearing.
+  function calendarRows(id, following) {
     var cal = readCal(id, true);
     if (!cal || !cal.items.length) return [];
+    var follow = {};
+    (following || []).forEach(function (f) {
+      if (f.titleId) follow['id:' + f.titleId] = true;
+      if (f.tvdb) follow['tvdb:' + f.tvdb] = true;
+      if (f.tmdb) follow['tmdb:' + f.tmdb] = true;
+      if (f.imdb) follow['imdb:' + f.imdb] = true;
+    });
+    var followed = function (it, item) {
+      if (it.source === 'watchlist') return true;
+      var x = it.externalIds || {};
+      return !!(follow['id:' + item.titleId] || (x.tvdb && follow['tvdb:' + x.tvdb]) ||
+                (x.tmdb && follow['tmdb:' + x.tmdb]) || (x.imdb && follow['imdb:' + x.imdb]));
+    };
     var today = localDate(new Date()), seen = {};
     var usable = cal.items.map(function (it) { return { it: it, item: fromCalendar(it) }; })
-      .filter(function (x) { return x.item.titleId; });
+      .filter(function (x) { return x.item.titleId && followed(x.it, x.item); });
     var fresh = usable.filter(function (x) { return x.it.mediaType !== 'movie' && x.it.airDate <= today; })
       .sort(function (a, b) { return a.it.airDate < b.it.airDate ? 1 : -1; })
       .filter(function (x) { if (seen[x.item.titleId]) return false; return (seen[x.item.titleId] = true); })   // one card per show
@@ -349,6 +365,7 @@
   }
 
   function show(html, scopeClass) {
+    ignoreHeldOK();
     if (scopeClass !== 'screen-home' && scopeClass !== 'screen-title') clearTint();
     view.className = scopeClass || '';
     view.innerHTML = html;
@@ -384,6 +401,13 @@
   // After the box opens, OK presses from the same hold are ignored until the
   // button has been let go, so a held button can't press Remove by itself.
   var swallowOK = false, swallowTimer = null;
+  // OK still held when a press opens a new screen (or starts playback) would
+  // otherwise carry on into it, repeating there: pressing whatever's selected
+  // on the new screen. So those leftover presses are ignored until it's let go.
+  var okDown = false;
+  document.addEventListener('keydown', function (e) { if (e.keyCode === 13) okDown = true; }, true);
+  document.addEventListener('keyup', function (e) { if (e.keyCode === 13) okDown = false; }, true);
+  function ignoreHeldOK() { if (okDown || hold) swallowUntilQuiet(); }
   function swallowUntilQuiet() {
     swallowOK = true;
     clearTimeout(swallowTimer);
@@ -606,7 +630,7 @@
     var rows = [];
     if (Array.isArray(results[0]) && results[0].length) rows.push({ title: 'Continue watching', wide: true, items: results[0].map(fromContinue) });
     if (!readCal(uid)) fetchCalendar(uid);
-    var cal = calendarRows(uid);
+    var cal = calendarRows(uid, Array.isArray(results[0]) ? results[0].map(fromContinue) : []);
     if (cal[0] && cal[0].title === 'New episodes') rows.push(cal.shift());
     if (!readAiCache(uid)) fetchAiRow(uid);
     var ai = readAiCacheAny(uid);
@@ -925,9 +949,14 @@
     var m = String(t.url || t.embedUrl || '').match(/(?:v=|youtu\.be\/|embed\/)([\w-]{6,})/);
     return m ? m[1] : null;
   }
-  function addTrailerButton(item, title) {
+  async function addTrailerButton(item, title) {
     var key = trailerKey(title), actions = document.getElementById('actions');
-    if (!key || !actions || actions.querySelector('.trailer-btn')) return;
+    if (!actions || actions.querySelector('.trailer-btn')) return;
+    if (!key) {   // usually not in the details: ask mediastorm for the trailers themselves
+      var t = await Api.trailers(item, profile.id).catch(function () { return null; });
+      key = trailerKey(t);
+      if (!key || !document.body.contains(actions) || actions.querySelector('.trailer-btn')) return;
+    }
     var b = document.createElement('button');
     b.className = 'btn trailer-btn'; b.setAttribute('data-focus', ''); b.textContent = 'Trailer';
     b.addEventListener('click', function () { playTrailer(item, key); });
@@ -954,48 +983,46 @@
     } catch (e) { failed(e.message); }
   }
 
+  // YouTube only plays embedded videos on pages from a real website (otherwise
+  // "Error 153"), and the app runs from the TV itself. So trailers play inside
+  // a small page hosted on GitHub Pages (docs/trailer.html in the repo), shown
+  // full-screen here. If that fails, the trailer opens in the TV's YouTube app.
+  var TRAILER_PAGE = (cfg && cfg.trailerPage) || 'https://roughtfish.github.io/mediastorm-webos/trailer.html';
   function playTrailer(item, key) {
     var back = document.activeElement, prevBack = Nav.currentBack ? Nav.currentBack() : null;
     var box = document.createElement('div');
     box.id = 'trailer';
-    box.innerHTML = '<iframe allow="autoplay; encrypted-media" allowfullscreen ' +
-      'src="https://www.youtube.com/embed/' + encodeURIComponent(key) +
-      '?autoplay=1&enablejsapi=1&controls=0&rel=0&playsinline=1&iv_load_policy=3"></iframe>' +
+    box.innerHTML = '<iframe allow="autoplay; encrypted-media" allowfullscreen referrerpolicy="strict-origin-when-cross-origin" ' +
+      'src="' + esc(TRAILER_PAGE + (TRAILER_PAGE.indexOf('?') >= 0 ? '&' : '?') + 'v=' + encodeURIComponent(key)) + '"></iframe>' +
       '<div class="trailer-keep" tabindex="0" data-focus></div>' +
       '<div class="trailer-hint">' + esc(item.name) + ' · trailer. OK pauses, Back closes</div>';
     document.body.appendChild(box);
     var frame = box.querySelector('iframe'), keep = box.querySelector('.trailer-keep');
     Nav.setScope(box);
     keep.focus();
-    var playing = false, paused = false, at = 0, done = false;
-    function post(func, args) {
-      try { frame.contentWindow.postMessage(JSON.stringify({ event: 'command', func: func, args: args || [] }), '*'); } catch (e) { /* not ready */ }
+    var playing = false, done = false;
+    function send(cmd, extra) {
+      var m = { ms: 'trailer', cmd: cmd };
+      for (var k in extra || {}) m[k] = extra[k];
+      try { frame.contentWindow.postMessage(m, '*'); } catch (e) { /* not ready */ }
     }
     function onMessage(e) {
-      if (!/youtube/.test(e.origin || '')) return;
-      var d; try { d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data; } catch (x) { return; }
-      if (!d) return;
-      if (d.event === 'onError') { fallback(); return; }
-      var info = d.info || {};
-      if (d.event === 'onStateChange') info = { playerState: d.info };
-      if (typeof info.currentTime === 'number') at = info.currentTime;
-      if (info.playerState === 1) { playing = true; paused = false; }
-      else if (info.playerState === 2) paused = true;
-      else if (info.playerState === 0) close();   // finished
+      var d = e.data;
+      if (!d || d.ms !== 'trailer' || done || e.source !== frame.contentWindow) return;
+      if (d.event === 'playing') playing = true;
+      else if (d.event === 'ended') close();
+      else if (d.event === 'error') fallback();
     }
     window.addEventListener('message', onMessage);
-    frame.addEventListener('load', function () {
-      try { frame.contentWindow.postMessage(JSON.stringify({ event: 'listening', id: 1, channel: 'widget' }), '*'); } catch (e) { /* ignore */ }
-    });
-    var watchdog = setTimeout(function () { if (!playing) fallback(); }, 9000);   // YouTube said nothing: try its app
+    var watchdog = setTimeout(function () { if (!playing) fallback(); }, 12000);   // nothing played: try its app
     var refocus = setInterval(function () { if (document.activeElement !== keep) keep.focus(); }, 400);   // keep the remote's keys here
     function onKey(e) {
       var k = e.keyCode;
       e.preventDefault(); e.stopImmediatePropagation();
       if (k === 461 || k === 27 || k === 8) close();
-      else if (k === 13 || k === 415 || k === 19 || k === 10252) { post(paused ? 'playVideo' : 'pauseVideo'); paused = !paused; }
-      else if (k === 37 || k === 412) post('seekTo', [Math.max(0, at - 10), true]);
-      else if (k === 39 || k === 417) post('seekTo', [at + 10, true]);
+      else if (k === 13 || k === 415 || k === 19 || k === 10252) send('toggle');
+      else if (k === 37 || k === 412) send('seekBy', { by: -10 });
+      else if (k === 39 || k === 417) send('seekBy', { by: 10 });
     }
     document.addEventListener('keydown', onKey, true);
     function close() {
@@ -1528,6 +1555,7 @@
   }
 
   function play(item, opts) {
+    ignoreHeldOK();
     var keepReturn = titleReturn;
     var from = document.activeElement;
     Player.start({

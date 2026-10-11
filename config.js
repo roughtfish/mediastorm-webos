@@ -9,5 +9,8 @@
 window.MS_CONFIG = {
   server: "",
   username: "",
-  password: ""
+  password: "",
+  // Optional: where the trailer page (docs/trailer.html) is hosted, if not on
+  // the project's own GitHub Pages.
+  trailerPage: ""
 };

@@ -2,6 +2,34 @@
 
 What changed in each version of mediastorm for LG webOS, newest first.
 
+## 1.6.5 (2026-10-11)
+
+- Trailers play inside the app again. YouTube refuses embedded videos that
+  don't come from a website ("Error 153"), so the app now shows a small
+  trailer page hosted on GitHub Pages, which holds the YouTube player. The
+  YouTube app is still the fallback.
+
+## 1.6.4 (2026-10-11)
+
+- Test build, to find out why trailers wouldn't play in the app (YouTube's
+  Error 153).
+
+## 1.6.3 (2026-10-11)
+
+- The Trailer button now appears. mediastorm doesn't include trailers in a
+  title's details, so the app asks for them separately.
+
+## 1.6.2 (2026-10-11)
+
+- Holding OK no longer carries on into the screen it opens. Holding it on a
+  New episodes card used to open the series and then play an episode.
+
+## 1.6.1 (2026-10-11)
+
+- New episodes and Coming soon show watchlist shows, plus shows from your
+  watch history only while they're in Continue watching. A show you've
+  removed from Continue watching, or dropped long ago, no longer appears.
+
 ## 1.6.0 (2026-10-11)
 
 - Why a release was chosen. The release picker shows what each release was

@@ -98,6 +98,15 @@ var Api = (function () {
       if (item.imdb) q += '&imdbId=' + enc(item.imdb);
       return call('GET', '/metadata/movies/details?' + q + '&userId=' + enc(userId));
     },
+    // A title's trailers (mediastorm doesn't include them in its details).
+    trailers: function (item, userId) {
+      var q = 'type=' + (item.kind === 'movie' ? 'movie' : 'series') + '&titleId=' + enc(item.titleId) + '&name=' + enc(item.name || '');
+      if (item.year) q += '&year=' + enc(item.year);
+      if (item.tmdb) q += '&tmdbId=' + enc(item.tmdb);
+      if (item.tvdb) q += '&tvdbId=' + enc(item.tvdb);
+      if (item.imdb) q += '&imdbId=' + enc(item.imdb);
+      return call('GET', '/metadata/trailers?' + q + '&userId=' + enc(userId));
+    },
     similar: function (type, tmdbId, userId) {
       return call('GET', '/metadata/similar?type=' + enc(type) + '&tmdbId=' + enc(tmdbId) + '&userId=' + enc(userId));
     },
