@@ -113,6 +113,10 @@ var Api = (function () {
     // Marking watched or unwatched: one update, or several at once.
     markWatched: function (userId, update) { return call('POST', '/users/' + enc(userId) + '/history/watched', update); },
     markWatchedBulk: function (userId, updates) { return call('POST', '/users/' + enc(userId) + '/history/watched/bulk', updates); },
+    // Everything marked watched, as identity keys like "movie:tmdb:movie:603".
+    watchedKeys: function (userId) {
+      return call('GET', '/users/' + enc(userId) + '/history/watched?fields=status&format=keys');
+    },
     watchedItem: function (userId, mediaType, id) {
       return call('GET', '/users/' + enc(userId) + '/history/watched/' + enc(mediaType) + '/' + enc(id));
     },

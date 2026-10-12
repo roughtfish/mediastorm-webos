@@ -2,6 +2,34 @@
 
 What changed in each version of mediastorm for LG webOS, newest first.
 
+## 1.7.1 (2026-10-11)
+
+- Watched films show it: ✓ Watched on the film's page, and a ✓ on its poster
+  wherever films appear (home rows, More like this, collections, person
+  pages and search).
+
+## 1.7.0 (2026-10-11)
+
+- Fixed shows appearing as "Ted Lasso • S04E02 – Curiouser and Curiouser!".
+  Some apps store a show's name with the episode tacked on; the app now uses
+  the show's real name on its page and in the watchlist, and repairs a
+  watchlist entry saved with the long name when you open the show.
+
+## 1.6.9 (2026-10-11)
+
+- Episodes that haven't aired yet can't be marked watched, on their own or as
+  part of Watched up to here or a whole season.
+
+## 1.6.8 (2026-10-11)
+
+- Unwatched from here, on a watched episode: unmarks it and everything after
+  it, later seasons included, for rewatching from a point.
+
+## 1.6.7 (2026-10-11)
+
+- Watched up to here also marks every earlier season, not just the earlier
+  episodes of the same season.
+
 ## 1.6.6 (2026-10-11)
 
 - If a trailer won't play in the app, it asks before opening the YouTube app,

@@ -41,9 +41,11 @@ Not affiliated with or supported by the mediastorm project. Tested on an LG C5
 - Series pages with seasons, episodes, watched and part-watched markers, and
   the cast below the episodes ("Cast and more" in the corner shows it's there)
 - More like this: similar films or series at the bottom of each page
-- Mark as watched: hold OK on an episode to mark it (or everything up to it,
-  or its season) watched or unwatched; the ⋯ button on a page does the same
-  for a season or a film. It syncs to mediastorm, so your other apps follow
+- Watched films show ✓ Watched on their page and a ✓ on their poster
+- Mark as watched: hold OK on an episode to mark it, everything up to it
+  (earlier seasons included) or its season, watched; or, on a watched
+  episode, unwatched from it onwards. The ⋯ button on a page does a season or
+  a film. It syncs to mediastorm, so your other apps follow
 - Pages for actors: pick anyone from a cast row to see their photo, a short
   bio, and everything else they've been in
 - Trailers: a Trailer button on film and series pages plays the trailer

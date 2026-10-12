@@ -101,7 +101,7 @@
     if (diff === 1) return 'Tomorrow';
     var days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return days[d.getDay()] + ' ' + d.getDate() + ' ' + months[d.getMonth()];
+    return days[d.getDay()] + ' ' + d.getDate() + ' ' + months[d.getMonth()] + (d.getFullYear() !== today.getFullYear() ? ' ' + d.getFullYear() : '');
   }
   function fromCalendar(it) {
     var x = it.externalIds || {}, movie = it.mediaType === 'movie';
@@ -470,6 +470,12 @@
   // ---------- normalising titles from different endpoints ----------
   function ext(map, key) { return map && map[key] ? String(map[key]) : ''; }
 
+  // Some apps store a title with the episode tacked on, like
+  // "Ted Lasso • S04E02 – Curiouser and Curiouser!". The show's name is the
+  // part before that.
+  function cleanName(n) {
+    return String(n || '').replace(/\s*[•·|–—-]\s*S\d{1,2}\s*E\d{1,3}\b.*$/i, '').trim() || String(n || '');
+  }
   function fromContinue(it) {
     var isMovie = /:movie:/.test(it.seriesId || '') || (!it.nextEpisode && !(it.lastWatched && it.lastWatched.episodeNumber > 0));
     var next = null;
@@ -479,7 +485,7 @@
     }
     return {
       key: 'cw:' + it.seriesId, kind: isMovie ? 'movie' : 'series', titleId: it.seriesId,
-      name: it.seriesTitle, year: it.year, overview: it.overview || (it.lastWatched && it.lastWatched.overview) || '',
+      name: cleanName(it.seriesTitle), year: it.year, overview: it.overview || (it.lastWatched && it.lastWatched.overview) || '',
       poster: it.posterUrl, backdrop: it.backdropUrl || (it.backdropUrls && it.backdropUrls[0]) || it.posterUrl,
       imdb: ext(it.externalIds, 'imdb'), tmdb: ext(it.externalIds, 'tmdb'), tvdb: ext(it.externalIds, 'tvdb'),
       next: next, percent: isMovie ? (it.resumePercent || it.percentWatched || 0) : (it.resumePercent || 0)
@@ -488,7 +494,7 @@
   function fromWatchlist(it) {
     return {
       key: 'wl:' + it.id, kind: it.mediaType === 'movie' ? 'movie' : 'series', titleId: it.id,
-      name: it.name, year: it.year, overview: it.overview || '', poster: it.posterUrl,
+      name: cleanName(it.name), year: it.year, overview: it.overview || '', poster: it.posterUrl,
       backdrop: it.backdropUrl || (it.backdropUrls && it.backdropUrls[0]) || it.posterUrl,
       imdb: ext(it.externalIds, 'imdb'), tmdb: ext(it.externalIds, 'tmdb'), tvdb: ext(it.externalIds, 'tvdb')
     };
@@ -704,7 +710,7 @@
             ? '<span class="card-label">' + esc(item.name) + (item.next ? '<em>S' + item.next.season + ' E' + item.next.episode +
                 (item.note ? ' · ' + esc(item.note) : '') + '</em>' : (item.note ? '<em>' + esc(item.note) + '</em>' : '')) + '</span>'
             : '';
-          return '<button class="card ' + (row.wide ? 'wide' : 'poster') + '" data-focus data-i="' + i + '" data-key="' + esc(item.key) + '">' +
+          return '<button class="card ' + (row.wide ? 'wide' : 'poster') + '" data-focus data-i="' + i + '" data-key="' + esc(item.key) + '"' + (row.wide ? '' : wkAttr(item)) + '>' +
             (img ? imgTag(img, row.wide ? 'w780' : 'w342', true) : '') +
             '<span class="card-fallback">' + esc(item.name) + '</span>' + label + bar + '</button>';
         }).join('') + '</div></section>';
@@ -763,6 +769,7 @@
 
     var again = lastHomeKey && view.querySelector('.card[data-key="' + (window.CSS && CSS.escape ? CSS.escape(lastHomeKey) : lastHomeKey) + '"]');
     if (again) Nav.focus(again); else Nav.focus(view.querySelector('#rows .card') || view.querySelector('[data-focus]'));
+    paintWatchedPosters(view.querySelector('#rows'));
   }
 
   // ---------- title pages ----------
@@ -836,8 +843,57 @@
       '<span class="card-fallback">' + esc(p.name) + '</span>' +
       '<span class="card-label">' + esc(p.name) + (p.character ? '<em>' + esc(p.character) + '</em>' : '') + '</span></button>';
   }
+  // ---------- watched films ----------
+  // A ✓ on film posters you've watched, from mediastorm's watched list
+  // (fetched once and kept for a couple of minutes).
+  var watchedSet = null, watchedAt = 0, watchedP = null;
+  function filmKeys(item) {
+    if (!item || item.kind !== 'movie') return '';
+    var k = [];
+    if (item.titleId) k.push('movie:' + item.titleId);
+    if (item.tmdb) k.push('movie:tmdb:movie:' + item.tmdb, 'movie:tmdb:' + item.tmdb);
+    if (item.imdb) k.push('movie:imdb:' + item.imdb, 'movie:' + item.imdb);
+    if (item.tvdb) k.push('movie:tvdb:movie:' + item.tvdb);
+    var m = String(item.titleId || '').match(/^tmdb:movie:(\d+)$/);
+    if (m && !item.tmdb) k.push('movie:tmdb:' + m[1]);
+    return k.join('|').toLowerCase();
+  }
+  function watchedKeysNow() {
+    if (watchedSet && Date.now() - watchedAt < 120000) return Promise.resolve(watchedSet);
+    if (watchedP) return watchedP;
+    watchedP = Api.watchedKeys(profile.id).then(function (r) {
+      var set = {};
+      if (r && Array.isArray(r.watched)) r.watched.forEach(function (k) { set[String(k).toLowerCase()] = true; });
+      else if (Array.isArray(r)) r.forEach(function (it) {   // older servers: the full list
+        if (!it || !it.watched || it.mediaType !== 'movie') return;
+        set[('movie:' + it.itemId).toLowerCase()] = true;
+        var x = it.externalIds || {};
+        if (x.tmdb) set['movie:tmdb:movie:' + x.tmdb] = true;
+        if (x.imdb) set[('movie:imdb:' + x.imdb).toLowerCase()] = true;
+      });
+      watchedSet = set; watchedAt = Date.now(); watchedP = null;
+      return set;
+    }, function () { watchedP = null; return watchedSet || {}; });
+    return watchedP;
+  }
+  function filmWatched(set, keys) {
+    return !!keys && keys.split('|').some(function (k) { return set[k]; });
+  }
+  // Adds the ✓ to every film poster in el that's been watched.
+  function paintWatchedPosters(el) {
+    if (!el || !el.querySelector('[data-wk]')) return;
+    watchedKeysNow().then(function (set) {
+      el.querySelectorAll('[data-wk]').forEach(function (c) {
+        var on = filmWatched(set, c.getAttribute('data-wk')), tick = c.querySelector('i.seen');
+        if (on && !tick) { tick = document.createElement('i'); tick.className = 'seen'; tick.textContent = '✓'; c.appendChild(tick); }
+        else if (!on && tick) tick.parentNode.removeChild(tick);
+      });
+    });
+  }
+  function wkAttr(item) { var k = filmKeys(item); return k ? ' data-wk="' + esc(k) + '"' : ''; }
+
   function posterCard(item, i) {
-    return '<button class="card poster" data-focus data-t="' + i + '">' +
+    return '<button class="card poster" data-focus data-t="' + i + '"' + wkAttr(item) + '>' +
       (item.poster ? imgTag(item.poster, 'w342', true) : '') +
       '<span class="card-fallback">' + esc(item.name) + (item.year ? ' (' + item.year + ')' : '') + '</span></button>';
   }
@@ -898,6 +954,12 @@
     var after = actions.querySelector('.trailer-btn') || actions.querySelector('.btn:not(.primary):not(.quiet)');
     actions.insertBefore(b, after ? after.nextSibling : null);
     var entry = wlEntryFor(item, await watchlistNow());
+    var goodName = (title && title.name) || cleanName(item.name);
+    if (entry && entry.name && entry.name !== goodName && cleanName(entry.name) !== entry.name) {
+      var fixed = {}; for (var f in entry) fixed[f] = entry[f];
+      fixed.name = goodName;
+      Api.addToWatchlist(profile.id, fixed).then(function () { entry = fixed; wlCache = null; homeStale = true; }, function () {});
+    }
     function draw() { b.textContent = entry ? '✓ On watchlist' : '+ Watchlist'; b.classList.toggle('on', !!entry); }
     draw();
     var busy = false;
@@ -915,7 +977,7 @@
           if (item.imdb) x.imdb = String(item.imdb);
           if (item.tmdb) x.tmdb = String(item.tmdb);
           if (item.tvdb) x.tvdb = String(item.tvdb);
-          var body = { id: item.titleId, mediaType: mt, name: item.name, year: +item.year || 0, overview: item.overview || '',
+          var body = { id: item.titleId, mediaType: mt, name: (title && title.name) || cleanName(item.name), year: +item.year || 0, overview: item.overview || '',
                        posterUrl: item.poster || '', backdropUrl: item.backdrop || '', externalIds: x,
                        genres: t.genres || [], runtimeMinutes: t.runtimeMinutes || 0 };
           var saved2 = await Api.addToWatchlist(profile.id, body);
@@ -1053,6 +1115,11 @@
     var title = details || await titleDetailsCached(item);
     var main = document.getElementById('play-main');
     if (!main || !document.body.contains(main)) return;
+    if (title && title.name && title.name !== item.name) {
+      item.name = title.name;
+      var h1 = view.querySelector('.title-body h1');
+      if (h1) h1.textContent = title.name;
+    }
     addRatings(title);
     addTrailerButton(item, title);
     addWatchlistButton(item, title);
@@ -1088,6 +1155,7 @@
     view.insertAdjacentHTML('beforeend', html + (film ? '' :
       '<div class="extras-hint">▼ ' + (cast.length ? 'Cast and more' : others.length ? esc('More in ' + others.colName) : 'More like this') + '</div>'));
     var box = view.querySelector('.title-extras');
+    paintWatchedPosters(box);
     if (film) {   // start just under the buttons, however tall the title and text are
       var ROW_H = 330, a = document.getElementById('actions').getBoundingClientRect();
       if (a.bottom + 24 + ROW_H > window.innerHeight) {
@@ -1158,6 +1226,7 @@
     }
     layer.innerHTML = (row('Films', films) + row('Series', series)) ||
       '<p class="muted" style="margin-left:var(--pad)">Nothing else listed for ' + esc(p.name) + '.</p>';
+    paintWatchedPosters(layer);
     function backToPerson() { openPerson(p, back); }
     layer.querySelectorAll('[data-t]').forEach(function (b) {
       b.addEventListener('click', function () { openTitle(list[+b.getAttribute('data-t')], backToPerson); });
@@ -1221,13 +1290,21 @@
         setTimeout(applyProgress, RESTORE_REFRESH_MS);
       }
     };
+    function showFilmWatched(on) {
+      var row = view.querySelector('.meta-row'), tag = row && row.querySelector('.watched-tag');
+      if (!row) return;
+      if (on && !tag) { tag = document.createElement('span'); tag.className = 'watched-tag'; tag.textContent = '✓ Watched'; row.insertBefore(tag, row.firstChild); }
+      else if (!on && tag) tag.parentNode.removeChild(tag);
+    }
+    watchedKeysNow().then(function (set) { if (document.body.contains(main)) showFilmWatched(filmWatched(set, filmKeys(item))); });
     var filmMore = document.createElement('button');
     filmMore.className = 'btn more-btn'; filmMore.setAttribute('data-focus', ''); filmMore.textContent = '⋯';
     filmMore.setAttribute('aria-label', 'More');
     actions.appendChild(filmMore);
     filmMore.addEventListener('click', async function () {
       var w = await Api.watchedItem(profile.id, 'movie', item.titleId).catch(function () { return null; });
-      var isW = !!(w && (w.watched === true || (w.item && w.item.watched === true)));
+      var isW = !!(w && (w.watched === true || (w.item && w.item.watched === true))) ||
+                filmWatched(await watchedKeysNow(), filmKeys(item));
       choiceBox(item.name, 'Your other mediastorm apps will see this too.', [{
         label: isW ? 'Mark as unwatched' : 'Mark as watched',
         fn: async function () {
@@ -1238,6 +1315,8 @@
           try {
             await Api.markWatched(profile.id, { mediaType: 'movie', itemId: item.titleId, name: item.name, year: +item.year || 0, watched: !isW, externalIds: x });
             homeStale = true;
+            watchedSet = null;   // fetch it fresh next time
+            showFilmWatched(!isW);
             toast((isW ? 'Unmarked ' : 'Marked ') + item.name + (isW ? '.' : ' as watched.'));
             applyProgress();
           } catch (e) { toast('Couldn\'t change that: ' + e.message, 'warn'); }
@@ -1354,10 +1433,21 @@
         Api.progressList(profile.id).catch(function () { return []; })
       ]).then(function (w) { applyWatch(w, true); });
     }
+    // Episodes that haven't aired yet can't be marked watched. Ones with no
+    // date at all (common on older shows) are treated as out.
+    function aired(ep) {
+      var d = String(ep && ep.airedDate || '').slice(0, 10);
+      return !d || d <= localDate(new Date());
+    }
     async function markEpisodes(eps, isWatched, what) {
+      if (isWatched) eps = eps.filter(aired);
+      if (!eps.length) { toast('Those episodes haven\'t aired yet.'); return; }
       try {
         if (eps.length === 1) await Api.markWatched(profile.id, epUpdate(eps[0], isWatched));
-        else await Api.markWatchedBulk(profile.id, eps.map(function (ep) { return epUpdate(ep, isWatched); }));
+        else {
+          var ups = eps.map(function (ep) { return epUpdate(ep, isWatched); });
+          for (var i = 0; i < ups.length; i += 50) await Api.markWatchedBulk(profile.id, ups.slice(i, i + 50));
+        }
         eps.forEach(function (ep) { var k = ep.seasonNumber + ':' + ep.episodeNumber; if (isWatched) { watched[k] = true; delete partial[k]; } else delete watched[k]; });
         paintWatch();
         toast((isWatched ? 'Marked ' : 'Unmarked ') + what + (isWatched ? ' as watched.' : '.'));
@@ -1368,17 +1458,35 @@
     function episodeMenu(se, ep) {
       if (!ep) return;
       var key = ep.seasonNumber + ':' + ep.episodeNumber, isW = !!watched[key];
+      if (!aired(ep) && !isW) {
+        choiceBox((ep.seasonNumber === 0 ? 'Special ' : 'S' + ep.seasonNumber + ' ') + 'E' + ep.episodeNumber + (ep.name ? ': ' + ep.name : ''),
+          'This episode hasn\'t aired yet' + (ep.airedDate ? ': it\'s out ' + dayLabel(String(ep.airedDate).slice(0, 10)) : '') + '.', []);
+        return;
+      }
       var label = (ep.seasonNumber === 0 ? 'Special ' : 'S' + ep.seasonNumber + ' ') + 'E' + ep.episodeNumber + (ep.name ? ': ' + ep.name : '');
-      var idx = se.episodes.indexOf(ep), before = se.episodes.slice(0, idx + 1);
+      // Watched up to here: this episode, the ones before it, and every earlier
+      // season (specials aside, unless this is one).
+      var idx = se.episodes.indexOf(ep), before = [];
+      if (se.number > 0) seasons.forEach(function (o) { if (o.number > 0 && o.number < se.number) before = before.concat(o.episodes); });
+      before = before.concat(se.episodes.slice(0, idx + 1)).filter(aired);
+      var earlierSeasons = before.length > idx + 1;
+      // Unwatched from here: this episode, the rest of its season, and every
+      // later season (specials aside, unless this is one); only those marked.
+      var after = se.episodes.slice(idx);
+      if (se.number > 0) seasons.forEach(function (o) { if (o.number > se.number) after = after.concat(o.episodes); });
+      after = after.filter(function (e) { return watched[e.seasonNumber + ':' + e.episodeNumber]; });
       var choices = [{ label: isW ? 'Mark as unwatched' : 'Mark as watched', fn: function () { markEpisodes([ep], !isW, label); } }];
-      if (!isW && idx > 0) choices.push({ label: 'Watched up to here', fn: function () { markEpisodes(before, true, 'every episode up to ' + label); } });
-      choices.push({ label: 'Mark ' + seasonName(se) + ' watched', fn: function () { markEpisodes(se.episodes, true, seasonName(se)); } });
+      if (isW && after.length > 1) choices.push({ label: 'Unwatched from here', fn: function () { markEpisodes(after, false, after.length + ' episodes, from ' + label); } });
+      if (!isW && (idx > 0 || earlierSeasons)) choices.push({ label: 'Watched up to here', fn: function () { markEpisodes(before, true, before.length + ' episodes, up to ' + label + ','); } });
+      var seasonAllW = se.episodes.filter(aired).every(function (e) { return watched[e.seasonNumber + ':' + e.episodeNumber]; });
+      choices.push({ label: 'Mark ' + seasonName(se) + (seasonAllW ? ' unwatched' : ' watched'),
+                     fn: function () { markEpisodes(se.episodes, !seasonAllW, seasonName(se)); } });
       choiceBox(label, 'Your other mediastorm apps will see this too.', choices);
     }
     function seasonMenu() {
       var se = seasons[shownSeason];
       if (!se) return;
-      var allW = se.episodes.every(function (ep) { return watched[ep.seasonNumber + ':' + ep.episodeNumber]; });
+      var allW = se.episodes.filter(aired).every(function (ep) { return watched[ep.seasonNumber + ':' + ep.episodeNumber]; });
       choiceBox(item.name, 'Hold OK on an episode to mark just that one.', [
         { label: (allW ? 'Mark ' + seasonName(se) + ' unwatched' : 'Mark ' + seasonName(se) + ' watched'),
           fn: function () { markEpisodes(se.episodes, !allW, seasonName(se)); } }
@@ -2101,10 +2209,11 @@
       return;
     }
     box.innerHTML = searchState.results.map(function (item, i) {
-      return '<button class="card poster" data-focus data-r="' + i + '" data-key="' + esc(item.key) + '">' +
+      return '<button class="card poster" data-focus data-r="' + i + '" data-key="' + esc(item.key) + '"' + wkAttr(item) + '>' +
         (item.poster ? imgTag(item.poster, 'w342', true) : '') +
         '<span class="card-fallback">' + esc(item.name) + (item.year ? ' (' + item.year + ')' : '') + '</span></button>';
     }).join('');
+    paintWatchedPosters(box);
     box.querySelectorAll('.card').forEach(function (c) {
       c.addEventListener('focus', function () {
         var item = searchState.results[+c.getAttribute('data-r')];
