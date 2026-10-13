@@ -59,6 +59,7 @@
   .lede { color: var(--muted); margin: 0 0 40px; }
 
   /* ---------- sign in, PIN, messages ---------- */
+  .app-version { margin: 40px 0 0; font-size: 20px; color: var(--muted); opacity: .7; }
   .center-panel { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 780px; }
   .center-panel.wide { width: 1500px; text-align: center; }
   .center-panel h1 { font-size: 56px; font-weight: 600; margin: 0 0 16px; }
@@ -270,7 +271,6 @@
   #skip-btn { position: absolute; right: var(--pad); bottom: 120px; display: none; z-index: 4; padding: 18px 34px; font-size: 28px; font-weight: 600;
     background: rgba(17,23,34,.88); color: var(--text); border: 4px solid var(--bolt); border-radius: 12px; }
   #skip-btn.on { display: block; }
-  #skip-btn::after { content: '  OK'; font-weight: 400; color: var(--muted); font-size: 22px; }
   #upnext { position: absolute; right: var(--pad); bottom: 96px; width: 760px; padding: 36px 44px; border-radius: 16px;
     background: rgba(17,23,34,.94); border-left: 8px solid var(--bolt); display: none; z-index: 6; }
   #upnext.on { display: block; }
@@ -287,7 +287,7 @@
   #view.extras-on > * { transform: translateY(-600px); }
   /* The buttons under a title stay on one line; long labels are shortened. */
   .title-body .actions { white-space: nowrap; width: max-content; max-width: calc(1920px - 2 * var(--pad)); }
-  .title-body .actions .btn { max-width: 620px; overflow: hidden; text-overflow: ellipsis; vertical-align: top; }
+  .title-body .actions .btn { max-width: 520px; overflow: hidden; text-overflow: ellipsis; vertical-align: top; }
   #confirm p { max-width: 900px; line-height: 1.45; }
   .meta-row { display: flex; align-items: center; gap: 28px; margin: 0 0 18px; white-space: nowrap; width: max-content; max-width: calc(1920px - 2 * var(--pad)); overflow: hidden; }
   .meta-row .meta { margin: 0; }
@@ -352,6 +352,7 @@
   .score-row b { text-align: right; }
   .score-row.up b { color: var(--good); }
   .score-row.down b { color: var(--bad); }
+  .score-row.neutral { opacity: .5; }
   #confirm { position: fixed; inset: 0; z-index: 45; background: rgba(10, 14, 22, .78); display: flex; align-items: center; justify-content: center; }
   #confirm .box { background: var(--panel); border: 2px solid var(--line); border-radius: 18px; padding: 48px 56px; max-width: 1000px; }
   #confirm h2 { font-size: 40px; font-weight: 600; margin: 0 0 12px; }

@@ -334,7 +334,7 @@ var Player = (function () {
       (st.migrationCandidates || []).forEach(function (r) { token.candidates.push(candidateFromResult(r)); });
 
       if (token.resume && !token.startAt) {
-        var p = await Api.getProgress(token.profileId, mediaTypeFor(token), progressItemId(token)).catch(function () { return null; });
+        var p = await resumePoint(token);
         if (p && p.position > 30 && p.percentWatched < 95) token.startAt = p.position;
       }
       await playNext(token);
@@ -763,8 +763,8 @@ var Player = (function () {
           var items = (mine.scoreBreakdown || []).filter(function (x) { return x && (x.reason || x.criterion); });
           box.innerHTML = items.length ? items.map(function (x) {
             var sign = x.points > 0 ? '+' : x.points < 0 ? '−' : '';
-            return '<div class="score-row' + (x.points > 0 ? ' up' : x.points < 0 ? ' down' : '') + '"><span>' + escapeHtml(x.criterion || '') +
-              '</span><small>' + escapeHtml(x.reason || '') + '</small><b>' + sign + '</b></div>';
+            return '<div class="score-row' + (x.points > 0 ? ' up' : x.points < 0 ? ' down' : ' neutral') + '"><span>' + escapeHtml(x.criterion || '') +
+              '</span><small>' + escapeHtml(plainReason(x.reason)) + '</small><b>' + sign + '</b></div>';
           }).join('') : '<p class="menu-note">mediastorm didn\'t give a breakdown for this release.</p>';
         }, function () {
           if (my !== aboutSeq || !aboutOpen) return;
@@ -816,6 +816,74 @@ var Player = (function () {
     if (token.item.kind === 'movie') return token.item.titleId;
     var ep = token.episode || { season: 1, episode: 1 };
     return token.item.titleId + ':S' + pad2(ep.season) + 'E' + pad2(ep.episode);
+  }
+
+  // mediastorm's reasons quote your terms as written, patterns included, like
+  // '(?i)\b(DV|DoVi)\b'. This turns them into plain words: "DV or DoVi".
+  function plainTerm(t) {
+    var s = String(t || '').trim();
+    if (/^\/.*\/[a-z]*$|\\[bsdw]|\(\?|[|]/.test(s)) {   // a pattern: keep just the words
+      s = s.replace(/^\/(.*)\/[a-z]*$/, '$1').replace(/\(\?[a-z]+\)/g, '')
+        .replace(/\\b/g, '').replace(/\\s\*|\\s\+|\\s|\.\?|\.\*|\.\+|\[[^\]]*\]\??/g, ' ')
+        .replace(/[()^$?*]/g, '').replace(/\|/g, ' or ').replace(/\s+/g, ' ').trim();
+    }
+    if (s && s === s.toLowerCase()) s = s.replace(/\b[a-z]{3,}/g, function (w) { return w.charAt(0).toUpperCase() + w.slice(1); });
+    return s || String(t || '');
+  }
+  function plainReason(r) {
+    return String(r || '').replace(/'([^']*)'/g, function (m, list) {
+      return list.split(/,\s*(?![^()]*\))/).map(plainTerm).join(', ');
+    }).replace(/\(combined weight (\d+)\)/, '(weight $1)');
+  }
+
+  // Where to resume. mediastorm can hold an episode's place under its TVDB or
+  // its TMDB ID, depending on where it was last played from, and doesn't
+  // always link the two. So this asks under each ID the show has, then falls
+  // back to the full progress list, matching the season and episode.
+  function showIds(item) {
+    var ids = [item.titleId].concat(item.altIds || []);
+    if (item.tvdb) ids.push('tvdb:series:' + item.tvdb);
+    if (item.tmdb) ids.push('tmdb:tv:' + item.tmdb);
+    if (item.imdb) ids.push(item.imdb);
+    return ids.filter(function (v, i, a) { return v && a.indexOf(v) === i; });
+  }
+  async function resumePoint(token) {
+    var mt = mediaTypeFor(token);
+    var first = await Api.getProgress(token.profileId, mt, progressItemId(token)).catch(function () { return null; });
+    if (first && first.position > 0) return first;
+    if (mt !== 'episode' || !token.episode) {
+      if (mt === 'movie') {   // films: try the other IDs too
+        var mids = [];
+        if (token.item.tmdb) mids.push('tmdb:movie:' + token.item.tmdb);
+        if (token.item.imdb) mids.push(token.item.imdb);
+        for (var j = 0; j < mids.length; j++) {
+          if (mids[j] === token.item.titleId) continue;
+          var mp = await Api.getProgress(token.profileId, 'movie', mids[j]).catch(function () { return null; });
+          if (mp && mp.position > 0) return mp;
+        }
+      }
+      return first;
+    }
+    var se = 'S' + pad2(token.episode.season) + 'E' + pad2(token.episode.episode);
+    var ids = showIds(token.item);
+    for (var i = 0; i < ids.length; i++) {
+      if (ids[i] === token.item.titleId) continue;
+      var p = await Api.getProgress(token.profileId, 'episode', ids[i] + ':' + se).catch(function () { return null; });
+      if (p && p.position > 0) return p;
+    }
+    // Last resort: the whole list, by season and episode and any of the show's IDs.
+    var all = await Api.progressList(token.profileId).catch(function () { return []; });
+    var x = token.item, want = { tvdb: String(x.tvdb || ''), tmdb: String(x.tmdb || ''), imdb: String(x.imdb || '') };
+    var hit = (Array.isArray(all) ? all : []).filter(function (q) {
+      if (!q || q.mediaType !== 'episode') return false;
+      var m = /:S(\d+)E(\d+)$/i.exec(q.itemId || '');
+      var sn = q.seasonNumber || (m && +m[1]), en = q.episodeNumber || (m && +m[2]);
+      if (+sn !== +token.episode.season || +en !== +token.episode.episode) return false;
+      var e = q.externalIds || {};
+      return ids.some(function (id) { return String(q.itemId || '').toLowerCase().indexOf(String(id).toLowerCase() + ':') === 0 || q.seriesId === id; }) ||
+        (want.tvdb && String(e.tvdb) === want.tvdb) || (want.tmdb && String(e.tmdb) === want.tmdb) || (want.imdb && e.imdb === want.imdb);
+    }).sort(function (a, b) { return String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')); })[0];
+    return hit || first;
   }
 
   async function sendProgress(token, final, ended) {

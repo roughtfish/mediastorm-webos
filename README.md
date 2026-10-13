@@ -56,8 +56,11 @@ Not affiliated with or supported by the mediastorm project. Tested on an LG C5
   YouTube app
 - Long descriptions get a More button that shows the full text
 - A Home button at the top of film, series and person pages
-- Remove titles from Continue watching: hold OK on the card, or use the button
-  on its page
+- Version checks: the sign-in and profile screens show the app's and the
+  server's versions, and once a day the app says if a newer mediastorm (from
+  mediastorm's own update check) or a newer version of this app (from this
+  repository's GitHub releases) is out. Releases need tags like `v1.8.0`
+- Remove titles from Continue watching: hold OK on the card, or use ⋯ on its page
 
 ### Playback
 

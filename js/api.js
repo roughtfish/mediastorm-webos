@@ -202,6 +202,10 @@ var Api = (function () {
     // it the backend may remux MKVs and lose the Dolby Vision metadata.
     // meta (optional) names what's playing, so mediastorm's Active Streams
     // panel shows the title, episode and poster rather than "Unknown".
+    // The server's version (needs no sign-in), and mediastorm's own check
+    // against its latest release on GitHub.
+    serverVersion: function () { return call('GET', '/version'); },
+    updateStatus: function () { return call('GET', '/updates/status'); },
     // mediastorm's own icons (rating logos and the like).
     staticUrl: function (path) { return server + '/api/static/' + path; },
     streamUrl: function (path, profileId, meta) {

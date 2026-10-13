@@ -67,13 +67,18 @@ var Nav = (function () {
       var b = el.getBoundingClientRect();
       var bx = b.left + b.width / 2, by = b.top + b.height / 2;
       var dx = bx - ax, dy = by - ay, primary, secondary;
+      // Gaps between edges, not centres: a wide button straight above counts as
+      // in line, so Up and Down go to the nearest row rather than skipping a
+      // wide button for a small one further away.
+      var gapX = Math.max(0, b.left - a.right, a.left - b.right);
+      var gapY = Math.max(0, b.top - a.bottom, a.top - b.bottom);
       // Left and right stay within the same band, so the end of a row is a stop
       // rather than a jump into the row below.
       var sameBand = b.top < a.bottom - 4 && b.bottom > a.top + 4;
       if (dir === 'left') { if (b.right > a.left + 4 || !sameBand) return; primary = -dx; secondary = Math.abs(dy); }
       else if (dir === 'right') { if (b.left < a.right - 4 || !sameBand) return; primary = dx; secondary = Math.abs(dy); }
-      else if (dir === 'up') { if (b.bottom > a.top + 4) return; primary = -dy; secondary = Math.abs(dx); }
-      else { if (b.top < a.bottom - 4) return; primary = dy; secondary = Math.abs(dx); }
+      else if (dir === 'up') { if (b.bottom > a.top + 4) return; primary = gapY; secondary = gapX + Math.abs(dx) * 0.1; }
+      else { if (b.top < a.bottom - 4) return; primary = gapY; secondary = gapX + Math.abs(dx) * 0.1; }
       // Staying in line matters more than raw distance, so a row's neighbour
       // beats a closer element diagonally above or below.
       var score = primary + secondary * 2.5;

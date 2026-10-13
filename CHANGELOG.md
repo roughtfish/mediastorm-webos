@@ -2,6 +2,67 @@
 
 What changed in each version of mediastorm for LG webOS, newest first.
 
+## 1.8.2 (2026-10-13)
+
+- Remove from Continue watching moved into the ⋯ menu on film and series
+  pages, so the row of buttons no longer runs off the edge of the screen.
+  Holding OK on a Continue watching card still works too.
+
+## 1.8.1 (2026-10-12)
+
+- Part-watched episodes show their progress bar again: mediastorm stores
+  episode IDs in lower case, and the app was only looking for upper case.
+- The series Play button says "Resume S1 E3 from 12m" when the next episode is
+  part-watched, like films do.
+
+## 1.8.0 (2026-10-12)
+
+- The app's version, and the server's, show on the sign-in and profile
+  screens.
+- Once a day the app checks for newer versions of mediastorm (using
+  mediastorm's own update check) and of this app (its GitHub releases), and
+  says so once per new version.
+
+## Trailer page update (2026-10-12)
+
+- Trailers play without YouTube's captions. (Only `docs/trailer.html`
+  changed; no new app build needed.)
+
+## 1.7.7 (2026-10-12)
+
+- About this release and the release picker show your preferred terms in
+  plain words ("Atmos, HDR, DV or DoVi") instead of the raw patterns, and
+  lines that didn't affect the ranking are greyed out.
+
+## 1.7.6 (2026-10-12)
+
+- The Skip intro button just says "Skip intro", without the OK hint.
+
+## 1.7.5 (2026-10-12)
+
+- Fixed episodes not resuming where you left off when mediastorm held the
+  place under the show's other ID (TVDB versus TMDB). The app now looks
+  under each of the show's IDs, then in the full progress list.
+
+## 1.7.4 (2026-10-12)
+
+- Up and down move to the nearest row. Up from an episode no longer skips the
+  Play button for the More button, and down from the buttons goes to the
+  season you're looking at.
+
+## 1.7.3 (2026-10-12)
+
+- Watched episodes now show as watched even when mediastorm's per-show
+  summary misses them: the series page also checks mediastorm's full watched
+  list, and works out the next episode from it.
+
+## 1.7.2 (2026-10-12)
+
+- Fixed watched episodes not showing as watched on some shows. mediastorm can
+  file a show's history under its TVDB or its TMDB ID depending on where it
+  was played from; the app now looks under every ID the show has, and sends
+  them all when you watch, so the two stay linked.
+
 ## 1.7.1 (2026-10-11)
 
 - Watched films show it: ✓ Watched on the film's page, and a ✓ on its poster

@@ -515,6 +515,71 @@
     return bits.join('   ');
   }
 
+  // ---------- versions and updates ----------
+  // The app's version (from its own appinfo.json), the server's, and a daily
+  // check for newer releases of both.
+  var APP_REPO = 'roughtfish/mediastorm-webos';
+  var appVersion = '', serverVersionText = '';
+  try {
+    fetch('appinfo.json').then(function (r) { return r.json(); }).then(function (a) {
+      appVersion = (a && a.version) || '';
+      var el = document.getElementById('app-version');
+      if (el) el.textContent = versionLine();
+    }).catch(function () {});
+  } catch (e) { /* no fetch for local files */ }
+  function versionLine() {
+    return 'mediastorm for webOS' + (appVersion ? ' ' + appVersion : '') + (serverVersionText ? ' · Server: mediastorm ' + serverVersionText : '');
+  }
+  function versionFooter() { return '<p class="app-version" id="app-version">' + esc(versionLine()) + '</p>'; }
+  function loadServerVersion() {
+    Api.serverVersion().then(function (v) {
+      var ver = v && (v.version || v.Version);
+      if (!ver) return;
+      serverVersionText = /^v/i.test(ver) ? ver : 'v' + ver;
+      var el = document.getElementById('app-version');
+      if (el) el.textContent = versionLine();
+    }, function () {});
+  }
+  // 1.10.0 is newer than 1.9.2; a leading "v" and anything after a dash are ignored.
+  function newerVersion(a, b) {
+    var pa = String(a || '').replace(/^v/i, '').split(/[-+]/)[0].split('.').map(Number);
+    var pb = String(b || '').replace(/^v/i, '').split(/[-+]/)[0].split('.').map(Number);
+    for (var i = 0; i < Math.max(pa.length, pb.length); i++) {
+      var x = pa[i] || 0, y = pb[i] || 0;
+      if (x !== y) return x > y;
+    }
+    return false;
+  }
+  var UPDATE_KEY = STORE + '-updates';
+  function checkUpdates() {
+    var st = {};
+    try { st = JSON.parse(localStorage.getItem(UPDATE_KEY)) || {}; } catch (e) { st = {}; }
+    if (st.at && Date.now() - st.at < 24 * 3600 * 1000) return;   // once a day
+    st.at = Date.now();
+    var notes = [];
+    var server = Api.updateStatus().then(function (u) {
+      var b = u && u.backend;
+      if (b && b.updateAvailable && b.latestVersion && st.server !== b.latestVersion) {
+        notes.push('mediastorm ' + b.latestVersion + ' is available (you have ' + (b.currentVersion || 'an older version') +
+          '). Update it where you installed mediastorm.');
+        st.server = b.latestVersion;
+      }
+    }, function () {});
+    var app = (appVersion ? fetch('https://api.github.com/repos/' + APP_REPO + '/releases/latest', { headers: { Accept: 'application/vnd.github+json' } })
+        .then(function (r) { return r.ok ? r.json() : null; }) : Promise.resolve(null))
+      .then(function (rel) {
+        var tag = rel && rel.tag_name;
+        if (tag && newerVersion(tag, appVersion) && st.app !== tag) {
+          notes.push('A new version of this app is available: ' + tag.replace(/^v/i, '') + ' (you have ' + appVersion + ').');
+          st.app = tag;
+        }
+      }, function () {});
+    Promise.all([server, app]).then(function () {
+      try { localStorage.setItem(UPDATE_KEY, JSON.stringify(st)); } catch (e) { /* full */ }
+      if (notes.length) toast(notes.join(' '));
+    });
+  }
+
   // ---------- sign in ----------
   function renderSetup(message) {
     Nav.onBack(null);
@@ -527,7 +592,9 @@
         field('password', 'Password', 'password', cfg.password || '') +
         '<button class="btn primary" data-focus data-autofocus id="signin">Sign in</button>' +
         (message ? '<p class="error">' + esc(message) + '</p>' : '') +
+        versionFooter() +
       '</div>', 'screen-setup');
+    loadServerVersion();
     document.getElementById('signin').addEventListener('click', signIn);
     Nav.first();
   }
@@ -580,7 +647,9 @@
             '<div class="name">' + esc(p.name) + (p.pinLength ? ' <small>PIN</small>' : '') + '</div></button>';
         }).join('') + '</div>' +
         '<button class="btn quiet" data-focus id="signout">Sign out of this TV</button>' +
+        versionFooter() +
       '</div>', 'screen-profiles');
+    loadServerVersion();
     view.querySelectorAll('.profile').forEach(function (b) {
       b.addEventListener('click', function () { chooseProfile(profiles[+b.getAttribute('data-index')]); });
     });
@@ -679,6 +748,7 @@
 
   async function renderHome(refresh) {
     Nav.onBack(function () { if (profiles.length > 1 || (profile && profile.pinLength)) renderProfiles(); });
+    setTimeout(checkUpdates, 4000);   // once a day, after the home screen has settled
     // Show what's saved straight away and refresh behind it.
     if (!homeData && !refresh) {
       var cached = readHomeCache();
@@ -843,6 +913,35 @@
       '<span class="card-fallback">' + esc(p.name) + '</span>' +
       '<span class="card-label">' + esc(p.name) + (p.character ? '<em>' + esc(p.character) + '</em>' : '') + '</span></button>';
   }
+  // ---------- a show's IDs ----------
+  // mediastorm can file a show's history under its TVDB or TMDB ID depending on
+  // where it was played from, and doesn't always link the two. So the app
+  // fills in every ID it knows from the show's details, and looks its watch
+  // history up under each until one has it.
+  function fillIds(item, title) {
+    if (!item || !title) return;
+    if (!item.tvdb && title.tvdbId) item.tvdb = String(title.tvdbId);
+    if (!item.tmdb && title.tmdbId) item.tmdb = String(title.tmdbId);
+    if (!item.imdb && title.imdbId) item.imdb = title.imdbId;
+    if (title.id && title.id !== item.titleId) item.altIds = (item.altIds || []).concat([title.id]);
+  }
+  function seriesIdsFor(item) {
+    var ids = [item.titleId].concat(item.altIds || []);
+    if (item.tvdb) ids.push('tvdb:series:' + item.tvdb);
+    if (item.tmdb) ids.push('tmdb:tv:' + item.tmdb);
+    if (item.imdb) ids.push(item.imdb);
+    return ids.filter(function (v, i, a) { return v && a.indexOf(v) === i; });
+  }
+  async function watchStateFor(item) {
+    var first = null;
+    for (var i = 0, ids = seriesIdsFor(item); i < ids.length; i++) {
+      var st = await Api.seriesWatchState(profile.id, ids[i]).catch(function () { return null; });
+      if (st && st.watchedEpisodes && Object.keys(st.watchedEpisodes).length) return st;
+      if (st && !first) first = st;
+    }
+    return first;
+  }
+
   // ---------- watched films ----------
   // A ✓ on film posters you've watched, from mediastorm's watched list
   // (fetched once and kept for a couple of minutes).
@@ -876,6 +975,8 @@
     }, function () { watchedP = null; return watchedSet || {}; });
     return watchedP;
   }
+  function twoDigits(n) { n = String(n); return n.length < 2 ? '0' + n : n; }
+  function freshWatchedKeys() { watchedSet = null; return watchedKeysNow(); }
   function filmWatched(set, keys) {
     return !!keys && keys.split('|').some(function (k) { return set[k]; });
   }
@@ -1235,8 +1336,14 @@
     if (firstCard) Nav.focus(firstCard); else Nav.focus(document.getElementById('go-home'));
   }
 
+  // Remove from Continue watching is an option in the ⋯ menu (a separate
+  // button made the row run off the screen).
+  function continueChoice(item, afterRemove) {
+    if (!inContinue(item)) return [];
+    return [{ label: 'Remove from Continue watching', fn: function () { askRemoveContinue(item, afterRemove || function () {}); } }];
+  }
   function addRemoveContinue(item, actions) {
-    if (!inContinue(item)) return;
+    return;
     var b = document.createElement('button');
     b.className = 'btn quiet'; b.setAttribute('data-focus', ''); b.textContent = 'Remove from Continue watching';
     b.addEventListener('click', function () {
@@ -1321,7 +1428,7 @@
             applyProgress();
           } catch (e) { toast('Couldn\'t change that: ' + e.message, 'warn'); }
         }
-      }]);
+      }].concat(continueChoice(item)));
     });
     applyProgress();
   }
@@ -1357,12 +1464,13 @@
     // Details come from memory if this series was opened (or rested on) before;
     // watch history arrives separately and fills in the badges when it lands.
     var watchP = Promise.all([
-      Api.seriesWatchState(profile.id, item.titleId).catch(function () { return null; }),
-      Api.progressList(profile.id).catch(function () { return []; })
+      watchStateFor(item),
+      Api.progressList(profile.id).catch(function () { return []; }),
+      freshWatchedKeys()
     ]);
     var details = await seriesDetailsCached(item);
     if (!document.body.contains(main)) return;   // left the page while loading
-    if (details && !details.error) addTitleExtras(item, details.title || null);
+    if (details && !details.error) { fillIds(item, details.title); addTitleExtras(item, details.title || null); }
     if (!details || details.error || !details.seasons) {
       document.getElementById('seasons').innerHTML = '<span class="muted">Couldn\'t load the episode list.</span>';
       return;
@@ -1426,11 +1534,24 @@
       return { mediaType: 'episode', seriesId: item.titleId, seriesName: item.name, seasonNumber: ep.seasonNumber,
                episodeNumber: ep.episodeNumber, name: ep.name || '', watched: isWatched, externalIds: x };
     }
+    // The episode after the last one watched (specials aside), if it's out.
+    function nextFromWatched() {
+      var all = [];
+      seasons.forEach(function (se) { if (se.number > 0) all = all.concat(se.episodes); });
+      var last = -1;
+      all.forEach(function (ep, i) { if (watched[ep.seasonNumber + ':' + ep.episodeNumber]) last = i; });
+      if (last < 0) return null;
+      var n = all[last + 1];
+      var today = localDate(new Date());
+      if (!n || (n.airedDate && String(n.airedDate).slice(0, 10) > today)) return null;
+      return { season: n.seasonNumber, episode: n.episodeNumber, title: n.name || '' };
+    }
     function refreshWatch() {
       homeStale = true;
       return Promise.all([
-        Api.seriesWatchState(profile.id, item.titleId).catch(function () { return null; }),
-        Api.progressList(profile.id).catch(function () { return []; })
+        watchStateFor(item),
+        Api.progressList(profile.id).catch(function () { return []; }),
+      freshWatchedKeys()
       ]).then(function (w) { applyWatch(w, true); });
     }
     // Episodes that haven't aired yet can't be marked watched. Ones with no
@@ -1490,8 +1611,10 @@
       choiceBox(item.name, 'Hold OK on an episode to mark just that one.', [
         { label: (allW ? 'Mark ' + seasonName(se) + ' unwatched' : 'Mark ' + seasonName(se) + ' watched'),
           fn: function () { markEpisodes(se.episodes, !allW, seasonName(se)); } }
-      ]);
+      ].concat(continueChoice(item)));
     }
+    // Down from the buttons goes to the season you're looking at, not just the nearest tab.
+    document.getElementById('actions').setAttribute('data-down', '.tab.current');
     var moreBtn = document.createElement('button');
     moreBtn.className = 'btn more-btn'; moreBtn.setAttribute('data-focus', ''); moreBtn.textContent = '⋯';
     moreBtn.setAttribute('aria-label', 'More');
@@ -1573,39 +1696,68 @@
         setTimeout(function () {
           if (!document.body.contains(main)) return;
           Promise.all([
-            Api.seriesWatchState(profile.id, item.titleId).catch(function () { return null; }),
-            Api.progressList(profile.id).catch(function () { return []; })
+            watchStateFor(item),
+            Api.progressList(profile.id).catch(function () { return []; }),
+      freshWatchedKeys()
           ]).then(function (w) { applyWatch(w, true); });
         }, RESTORE_REFRESH_MS);
       }
     };
 
-    applyWatch(await watchP, false);
+    var firstWatch = await watchP;
+    applyWatch(firstWatch, false);
+    // The details may have brought more IDs for the show; if nothing was found
+    // under the ones known at first, look again with all of them.
+    var fw = firstWatch && firstWatch[0];
+    if (!(fw && fw.watchedEpisodes && Object.keys(fw.watchedEpisodes).length) && seriesIdsFor(item).length > 1 && document.body.contains(main)) {
+      var w2 = await Promise.all([watchStateFor(item), Promise.resolve(firstWatch[1]), Promise.resolve(firstWatch[2])]);
+      var f2 = w2[0];
+      if (f2 && f2.watchedEpisodes && Object.keys(f2.watchedEpisodes).length) applyWatch(w2, false);
+    }
 
     // Watch history: mark watched and part-watched episodes, and update the
     // Play button to the real next episode.
     function applyWatch(w, again) {
     if (!document.body.contains(main)) return;
     watched = {}; partial = {};
-    var watch = w[0], progressAll = w[1] || [];
+    var watch = w[0], progressAll = w[1] || [], keys = w[2] || null;
     if (watch && watch.watchedEpisodes) {
       Object.keys(watch.watchedEpisodes).forEach(function (k) {
         var e = watch.watchedEpisodes[k];
         if (e && e.episodeNumber > 0) watched[e.seasonNumber + ':' + e.episodeNumber] = true;
       });
     }
-    var prefix = item.titleId + ':S';
+    // Also mediastorm's plain watched list, which lists every watched episode
+    // under each of its IDs: this catches episodes its per-show summary misses.
+    if (keys) {
+      var bases = seriesIdsFor(item).map(function (id) { return 'episode:' + String(id).toLowerCase() + ':'; });
+      seasons.forEach(function (se) {
+        se.episodes.forEach(function (ep) {
+          var tail = 's' + twoDigits(ep.seasonNumber) + 'e' + twoDigits(ep.episodeNumber);
+          if (bases.some(function (b) { return keys[b + tail]; })) watched[ep.seasonNumber + ':' + ep.episodeNumber] = true;
+        });
+      });
+    }
+    // mediastorm stores episode IDs in lower case ("…:s01e04"), so match either way.
+    var prefixes = seriesIdsFor(item).map(function (id) { return String(id).toLowerCase() + ':s'; });
+    var resumeAt = {};
     (Array.isArray(progressAll) ? progressAll : []).forEach(function (p) {
-      if (p.mediaType !== 'episode' || String(p.itemId).indexOf(prefix) !== 0) return;
-      var m = /:S(\d+)E(\d+)$/.exec(p.itemId);
-      if (m && p.percentWatched > 1 && p.percentWatched < 95) partial[(+m[1]) + ':' + (+m[2])] = p.percentWatched;
+      var pid = String(p.itemId || '').toLowerCase();
+      if (p.mediaType !== 'episode' || !prefixes.some(function (px) { return pid.indexOf(px) === 0; })) return;
+      var m = /:s(\d+)e(\d+)$/.exec(pid);
+      if (m && p.percentWatched > 1 && p.percentWatched < 95) {
+        partial[(+m[1]) + ':' + (+m[2])] = p.percentWatched;
+        if (p.position > 30) resumeAt[(+m[1]) + ':' + (+m[2])] = p.position;
+      }
     });
     var next = (watch && watch.nextEpisode && watch.nextEpisode.episodeNumber > 0)
       ? { season: watch.nextEpisode.seasonNumber, episode: watch.nextEpisode.episodeNumber, title: watch.nextEpisode.title || '' }
-      : item.next;
+      : nextFromWatched() || item.next;
     if (next) {
       item.next = next;
-      main.textContent = 'Play S' + next.season + ' E' + next.episode + (next.title ? ': ' + next.title : '');
+      var at = resumeAt[next.season + ':' + next.episode];
+      main.textContent = (at ? 'Resume S' + next.season + ' E' + next.episode + ' from ' + fmtTime(at)
+                             : 'Play S' + next.season + ' E' + next.episode + (next.title ? ': ' + next.title : ''));
       document.getElementById('title-meta').textContent = metaLine(item);
       if ((again || !focusEpisode) && document.activeElement === main) { pickFor = next; labelChoose(); }
     }
@@ -1752,13 +1904,34 @@
              premiumize: 'Premiumize', debridlink: 'Debrid-Link' }[p] || provider;
   }
 
+  // mediastorm's reasons quote your terms as written, patterns included, like
+  // '(?i)\b(DV|DoVi)\b'. This turns them into plain words: "DV or DoVi".
+  function plainTerm(t) {
+    var s = String(t || '').trim();
+    if (/^\/.*\/[a-z]*$|\\[bsdw]|\(\?|[|]/.test(s)) {   // a pattern: keep just the words
+      s = s.replace(/^\/(.*)\/[a-z]*$/, '$1').replace(/\(\?[a-z]+\)/g, '')
+        .replace(/\\b/g, '').replace(/\\s\*|\\s\+|\\s|\.\?|\.\*|\.\+|\[[^\]]*\]\??/g, ' ')
+        .replace(/[()^$?*]/g, '').replace(/\|/g, ' or ').replace(/\s+/g, ' ').trim();
+    }
+    if (s && s === s.toLowerCase()) s = s.replace(/\b[a-z]{3,}/g, function (w) { return w.charAt(0).toUpperCase() + w.slice(1); });
+    return s || String(t || '');
+  }
+  function plainReason(r) {
+    return String(r || '').replace(/'([^']*)'/g, function (m, list) {
+      return list.split(/,\s*(?![^()]*\))/).map(plainTerm).join(', ');
+    }).replace(/\(combined weight (\d+)\)/, '(weight $1)');
+  }
+
   var scoresSupported = null;   // whether this server has the scored search
   // A short "why it ranks here" from mediastorm's scoring breakdown.
   function rankingWhy(r) {
     var b = (r && r.scoreBreakdown) || [];
     var good = b.filter(function (x) { return x && x.points > 0 && (x.reason || x.criterion); })
       .sort(function (p, q) { return q.points - p.points; }).slice(0, 3)
-      .map(function (x) { var t = String(x.reason || x.criterion); return t.length > 44 ? t.slice(0, 42) + '…' : t; });
+      .map(function (x) {
+        var t = plainReason(x.reason || x.criterion).replace(/^matches preferred terms\s*/i, '').replace(/\s*\(weight \d+\)$/, '');
+        return t.length > 44 ? t.slice(0, 42) + '…' : t;
+      });
     return good.join(' · ');
   }
   async function renderPicker(item, episode, back) {
