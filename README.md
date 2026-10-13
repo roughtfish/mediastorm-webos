@@ -100,9 +100,8 @@ Not affiliated with or supported by the mediastorm project. Tested on an LG C5
   10-second countdown while the credits play (OK to play it now, Back to keep
   watching). The credits time comes from the file's own chapters (one named
   "Credits", "End Credits", "Outro" and so on), then IntroDB/SkipDB through
-  mediastorm (works with older and newer servers), then mediastorm's credits
-  detection if it's switched on. Without any of these, Up next appears when
-  the episode ends. The next episode always starts from the beginning
+  mediastorm (works with older and newer servers). Without either, Up next
+  appears when the episode ends. The next episode always starts from the beginning
 - Watch progress synced back to mediastorm every 10 seconds, and streams
   through your server show in mediastorm's Active Streams panel with their
   title, episode and poster

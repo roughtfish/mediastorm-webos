@@ -1006,9 +1006,8 @@ var Player = (function () {
   //   1. the file's own chapters, if one in the second half is named as credits
   //      (the same names mediastorm uses), with no server call needed;
   //   2. IntroDB/SkipDB via mediastorm: the newer POST lookup, or the older GET
-  //      one on servers that don't have it yet (POST arrived in October 2026);
-  //   3. mediastorm's own credits detection.
-  var CREDITS_POLL_MS = 20000, CREDITS_POLL_LIMIT = 45;   // up to 15 minutes of checking
+  //      one on servers that don't have it yet (POST arrived in October 2026).
+  //   Otherwise Up next appears when the episode ends.
   var OUTRO_TITLES = ['outro', 'credits', 'end credits', 'ending credits', 'closing credits',
                       'closing titles', 'end titles', 'ed'];
   function chapterTitle(t) {
@@ -1097,20 +1096,9 @@ var Player = (function () {
       } catch (e) { /* fall through to detection */ }
     }
 
-    if (!current() || !c.path || creditsDone) return;
-    try {
-      var started = await Api.detectCredits(c.path, dur);
-      if (!started || started.status === 'disabled') return;
-    } catch (e) { return; }
-    var pending = 0;
-    for (var i = 0; i < CREDITS_POLL_LIMIT; i++) {
-      await new Promise(function (ok) { setTimeout(ok, i === 0 ? 5000 : CREDITS_POLL_MS); });
-      if (!current() || token.creditsShown) return;
-      var st; try { st = await Api.creditsStatus(c.path); } catch (e) { continue; }
-      if (!st || st.status === 'disabled') return;
-      if (st.status === 'complete') { if (st.detected) use(st.creditsStartSec); return; }
-      if (st.status === 'pending' && ++pending >= 2) return;   // detection gave up without a result
-    }
+    // mediastorm's own server-side credits detection is no longer used, so
+    // there's nothing further to ask: without chapters or IntroDB/SkipDB,
+    // Up next appears when the episode ends.
   }
 
   // ---------- up next ----------

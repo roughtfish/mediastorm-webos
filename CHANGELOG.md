@@ -2,6 +2,12 @@
 
 What changed in each version of mediastorm for LG webOS, newest first.
 
+## 1.8.3 (2026-10-13)
+
+- Removed the fallback to mediastorm's server-side credits detection, which
+  is no longer used. Up next uses the file's chapters and IntroDB/SkipDB,
+  and otherwise appears when the episode ends.
+
 ## 1.8.2 (2026-10-13)
 
 - Remove from Continue watching moved into the ⋯ menu on film and series
