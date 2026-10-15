@@ -14,7 +14,7 @@ Not affiliated with or supported by the mediastorm project. Tested on an LG C5
 
 - Profiles, including PIN-protected ones
 - Home screen with Continue watching, AI picks (split into films and series),
-  your watchlist and the Top 10, with a backdrop that follows whatever you
+  your watchlist and the Top 10 films and series, with a backdrop that follows whatever you
   focus. AI picks come from the AI provider set up in mediastorm, based on
   your watch history and watchlist, and refresh every few hours; without a
   provider the row is hidden
@@ -31,15 +31,23 @@ Not affiliated with or supported by the mediastorm project. Tested on an LG C5
   films about dogs") and, if no title matches, the AI suggests some. On TVs
   whose web engine has no speech recognition, Speak opens LG's keyboard, whose
   microphone key works instead
+- Genres: film and series genres from the home screen, each with its popular
+  titles, loading more as you scroll
+- Library rows: a home screen row for each of mediastorm's library sources
+  (local folders, Plex, Jellyfin), newest first, playing straight through
+  with no release search; a row shows the newest 20, with
+  a See all tile opening the whole library when there's more
 - Typed search by title, and Ask AI to send the same words to the AI as a
   description
+- Recent searches: the last six that found something, one press to repeat
+  (per profile; hold OK to remove one)
 - Ratings on film and series pages: IMDb, Rotten Tomatoes (critics and
   audience), Metacritic and Letterboxd, with the age rating, runtime and
   genres. The scores come through mediastorm from MDBList, so they need an
   MDBList API key set up in mediastorm
 - Film pages with resume, the cast, and the other films in the same collection
 - Series pages with seasons, episodes, watched and part-watched markers, and
-  the cast below the episodes ("Cast and more" in the corner shows it's there)
+  the cast below the episodes. Episodes not out yet say when they air ("Cast and more" in the corner shows it's there)
 - More like this: similar films or series at the bottom of each page
 - Watched films show ✓ Watched on their page and a ✓ on their poster
 - Mark as watched: hold OK on an episode to mark it, everything up to it

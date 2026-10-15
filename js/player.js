@@ -1,3 +1,21 @@
+// The player: picking and checking a release, playback, seeking, audio and
+// subtitles, Up next, Skip intro, the cast strip and progress reporting.
+//
+// Sections, in order (search for "---------- name"):
+//   - preparing
+//   - checking a release
+//   - starting and switching
+//   - subtitles
+//   - audio tracks
+//   - progress
+//   - player events
+//   - skip intro / recap
+//   - credits
+//   - up next
+//   - seeking
+//   - leaving
+//   - cast while paused
+
 // Playback: prepares a title through mediastorm's prequeue, checks the chosen
 // release before the TV sees it, falls back to backup releases when one fails,
 // and plays the untouched file through the TV's own pipeline (which is what
@@ -281,16 +299,20 @@ var Player = (function () {
   // Where the stream comes from, read from the path mediastorm handed back:
   // /debrid/<service>/..., /webdav/... (Usenet) or localmedia:... (library).
   var SERVICES = { torbox: 'TorBox', realdebrid: 'Real-Debrid', alldebrid: 'AllDebrid', premiumize: 'Premiumize', debridlink: 'Debrid-Link' };
+  function sourceWhat(path) {
+    var m = /^\/debrid\/([^\/]+)/.exec(path || '');
+    if (m) return SERVICES[m[1].toLowerCase().replace(/[^a-z]/g, '')] || m[1];
+    var lm = /^(plexmedia|jellyfinmedia|localmedia):/.exec(path || '');
+    if (lm) return lm[1] === 'plexmedia' ? 'Plex' : lm[1] === 'jellyfinmedia' ? 'Jellyfin' : 'your library';
+    return 'Usenet';
+  }
   function sourceLabel(path, url) {
     var direct = url.indexOf(Api.server) !== 0;
-    var m = /^\/debrid\/([^\/]+)/.exec(path || '');
-    var what = m ? (SERVICES[m[1].toLowerCase().replace(/[^a-z]/g, '')] || m[1]) :
-      /^localmedia:/.test(path || '') ? 'Library' : 'Usenet';
-    return what + (direct ? ', streaming direct' : ', via your server');
+    return sourceWhat(path) + (direct ? ', streaming direct' : ', via your server');
   }
 
   function candidateFromResult(result) {
-    return { result: result, name: result.title, serviceType: result.serviceType, path: '' };
+    return { result: result, name: result.title, serviceType: result.serviceType, path: result.knownPath || '' };
   }
 
   // ---------- starting and switching ----------
@@ -347,7 +369,8 @@ var Player = (function () {
   // A release picked by hand skips mediastorm's prequeue, so the profile's
   // audio and subtitle preferences are read here instead.
   async function startManual(token, manual) {
-    token.manualPick = true;
+    token.manualPick = !manual.libraryItem;   // a library item isn't "picked" from a list of options
+    token.libraryItem = !!manual.libraryItem;
     token.wantTrackIndex = -1;
     token.wantSubIndex = -1;
     var settings = await Api.userSettings(token.profileId).catch(function () { return null; });
@@ -733,7 +756,8 @@ var Player = (function () {
       aboutOpen = true;
       var idx = t.candidates.indexOf(c), before = t.candidates.slice(0, Math.max(0, idx));
       var lines = [];
-      if (t.manualPick) lines.push('You picked this release yourself, in Choose release.');
+      if (t.libraryItem) lines.push('Playing directly from ' + sourceWhat(c.path) + '. No release search needed.');
+      else if (t.manualPick) lines.push('You picked this release yourself, in Choose release.');
       else if (idx <= 0) lines.push('mediastorm\'s first choice for your settings.');
       else {
         lines.push('mediastorm\'s ' + ordinal(idx + 1) + ' choice. The ones ranked above it:');
@@ -811,42 +835,20 @@ var Player = (function () {
     return 'S' + ep.season + ' E' + ep.episode;
   }
   function mediaTypeFor(token) { return token.item.kind === 'movie' ? 'movie' : 'episode'; }
-  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+  var pad2 = Util.pad2;
   function progressItemId(token) {
     if (token.item.kind === 'movie') return token.item.titleId;
     var ep = token.episode || { season: 1, episode: 1 };
     return token.item.titleId + ':S' + pad2(ep.season) + 'E' + pad2(ep.episode);
   }
 
-  // mediastorm's reasons quote your terms as written, patterns included, like
-  // '(?i)\b(DV|DoVi)\b'. This turns them into plain words: "DV or DoVi".
-  function plainTerm(t) {
-    var s = String(t || '').trim();
-    if (/^\/.*\/[a-z]*$|\\[bsdw]|\(\?|[|]/.test(s)) {   // a pattern: keep just the words
-      s = s.replace(/^\/(.*)\/[a-z]*$/, '$1').replace(/\(\?[a-z]+\)/g, '')
-        .replace(/\\b/g, '').replace(/\\s\*|\\s\+|\\s|\.\?|\.\*|\.\+|\[[^\]]*\]\??/g, ' ')
-        .replace(/[()^$?*]/g, '').replace(/\|/g, ' or ').replace(/\s+/g, ' ').trim();
-    }
-    if (s && s === s.toLowerCase()) s = s.replace(/\b[a-z]{3,}/g, function (w) { return w.charAt(0).toUpperCase() + w.slice(1); });
-    return s || String(t || '');
-  }
-  function plainReason(r) {
-    return String(r || '').replace(/'([^']*)'/g, function (m, list) {
-      return list.split(/,\s*(?![^()]*\))/).map(plainTerm).join(', ');
-    }).replace(/\(combined weight (\d+)\)/, '(weight $1)');
-  }
+  var plainReason = Util.plainReason;
 
   // Where to resume. mediastorm can hold an episode's place under its TVDB or
   // its TMDB ID, depending on where it was last played from, and doesn't
   // always link the two. So this asks under each ID the show has, then falls
   // back to the full progress list, matching the season and episode.
-  function showIds(item) {
-    var ids = [item.titleId].concat(item.altIds || []);
-    if (item.tvdb) ids.push('tvdb:series:' + item.tvdb);
-    if (item.tmdb) ids.push('tmdb:tv:' + item.tmdb);
-    if (item.imdb) ids.push(item.imdb);
-    return ids.filter(function (v, i, a) { return v && a.indexOf(v) === i; });
-  }
+  var showIds = Util.showIds;
   async function resumePoint(token) {
     var mt = mediaTypeFor(token);
     var first = await Api.getProgress(token.profileId, mt, progressItemId(token)).catch(function () { return null; });
@@ -1319,9 +1321,7 @@ var Player = (function () {
     }
     return { show: show, key: key, close: function () { if (open) close(); }, isOpen: function () { return open; } };
   })();
-  function escHtml(t) {
-    return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; });
-  }
+  var escHtml = Util.esc;
 
   // Player keys take priority while it's open.
   Nav.onKey(function (e) {

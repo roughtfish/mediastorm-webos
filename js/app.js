@@ -1,3 +1,28 @@
+// The app: screens (sign-in, profiles, home, search, film, series and
+// person pages, the release picker) and everything they show.
+//
+// Sections, in order (search for "---------- name"):
+//   - saved state
+//   - helpers
+//   - background tint
+//   - images
+//   - normalising titles from different endpoints
+//   - versions and updates
+//   - sign in
+//   - profiles
+//   - home
+//   - title pages
+//   - cast, people and collections
+//   - a show's IDs
+//   - watched films
+//   - ratings
+//   - watchlist
+//   - trailers
+//   - release picker
+//   - search
+//   - recent searches
+//   - start
+
 (function () {
   'use strict';
 
@@ -154,11 +179,7 @@
   var lastHomeKey = null;     // card to refocus when coming back home
 
   // ---------- helpers ----------
-  function esc(v) {
-    return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-    });
-  }
+  var esc = Util.esc;
   function toast(text, kind) {
     toastEl.textContent = text;
     toastEl.className = 'on ' + (kind || '');
@@ -423,13 +444,14 @@
   // What holding OK on a card does: Continue watching cards offer removal,
   // episode cards offer marking watched. Anything else just opens as normal.
   function holdActionFor(a) {
-    if (!a || !a.classList.contains('card')) return null;
+    if (!a || !(a.classList.contains('card') || a.classList.contains('recent'))) return null;
     if (view.className === 'screen-home' && a.classList.contains('wide')) {
       var item = homeItems[+a.getAttribute('data-i')];
       if (!item || String(item.key).indexOf('cw:') !== 0) return null;
       return function () { askRemoveContinue(item, function () { renderHome(); }); };
     }
     if (view.classList.contains('screen-title') && a.classList.contains('ep') && a.onhold) return a.onhold;
+    if (view.className === 'screen-search' && a.classList.contains('recent') && a.onhold) return a.onhold;
     return null;
   }
   function holdFired() {
@@ -507,10 +529,77 @@
       imdb: t.imdbId || '', tmdb: t.tmdbId ? String(t.tmdbId) : '', tvdb: t.tvdbId ? String(t.tvdbId) : ''
     };
   }
+  // Turns a release-style file name into something readable, for library
+  // items (local folders, Plex and the like) that have no proper title of
+  // their own: "Supercars.2026.Round11.Bathurst.1000.Race.TNTSports4.1080p.x264.English"
+  // becomes "Supercars 2026 · Round 11 · Bathurst 1000 · Race".
+  var CLEAN_DROP = ['web','webdl','web-dl','webrip','hdtv','hdtvrip','bluray','dvdrip','1080p','720p','2160p','480p','4k',
+    'x264','x265','h264','h265','hevc','avc','av1','xvid','aac','ac3','dts','atmos',
+    'dd','dd2','dd5','ddp','ddp2','ddp5',   // Dolby Digital / Plus, the ".1"/".0" after them is handled separately
+    'english','multi','dual','subs','proper','repack','real'];
+  // UK/common sports channel idents that turn up mid-filename, e.g.
+  // "TNTSports4", "SkySportsF1" — dropped on sight, unlike a plain "F1".
+  var CHANNEL_RE = /^(sky ?sports?|tnt ?sports?|bt ?sport|eurosport|premier ?sports?|dazn|motorsport ?tv|f1 ?tv|racepass|itv\d*|bbc\d*|channel ?4|viaplay)[a-z0-9]*$/i;
+  function splitAlphaNum(p) {   // "Round11" -> "Round 11"; "F1" stays as it is
+    return p.replace(/^([A-Za-z]+)(\d{2,})$/, '$1 $2');
+  }
+  function tidyFileName(name) {
+    var base = String(name || '').replace(/\.[a-z0-9]{2,4}$/i, '');
+    var parts = base.split(/[._]+/).filter(Boolean);
+    var kept = [];
+    for (var i = 0; i < parts.length; i++) {
+      var p = parts[i], low = p.toLowerCase(), prevDroppable = i > 0 && (CLEAN_DROP.indexOf(parts[i - 1].toLowerCase()) >= 0 || CHANNEL_RE.test(parts[i - 1]));
+      if (CLEAN_DROP.indexOf(low) >= 0) continue;
+      if (CHANNEL_RE.test(p)) continue;
+      if (/^\d{1,2}$/.test(low) && prevDroppable) continue;   // the "1" in "DDP5.1", and the like
+      if (i === parts.length - 1 && /-/.test(p) && !/^\d/.test(p)) continue;   // trailing "-ReleaseGroup"
+      kept.push(splitAlphaNum(p).replace(/^[a-z]/, function (c) { return c.toUpperCase(); }));
+    }
+    return kept.join(' ').replace(/\s+/g, ' ').trim() || base;
+  }
+  function fromLibraryGroup(g, lib) {
+    var it = g && g.items && g.items[0];
+    if (!it) return null;
+    var label = tidyFileName(it.fileName || g.title);
+    return {
+      key: 'lib:' + it.id, kind: 'movie', isLibraryItem: true, libraryItemId: it.id, libraryName: lib.name,
+      sourceType: lib.sourceType, titleId: 'library:' + it.id, name: label,
+      // The raw file name, as the detail line: spaced out so it wraps normally,
+      // in case the tidied name above has dropped something worth seeing.
+      overview: String(it.fileName || g.title || '').replace(/\.[a-z0-9]{2,4}$/i, '').replace(/[._]+/g, ' ').trim(),
+      // Plex/Jellyfin generate their own thumbnail per item, even for content
+      // with no title match, so it's safe to use (unlike a TMDB match, which
+      // could easily be wrong for something like a sports recording).
+      poster: lib.sourceType ? Api.libraryArtworkUrl(it.id, 'poster') : '',
+      backdrop: lib.sourceType ? Api.libraryArtworkUrl(it.id, 'backdrop') : ''
+    };
+  }
+  // Fetches a library item's real stream path and plays it directly, with no
+  // release search: the file is already known. Reuses the normal player (its
+  // seeking, subtitles, audio menu, resume and progress reporting), just with
+  // one release already picked for it.
+  async function playLibraryItem(item, from) {
+    var pb = await Api.libraryPlayback(item.libraryItemId).catch(function (e) { return { error: e }; });
+    if (pb.error || !pb.streamPath) {
+      toast('Couldn\'t get that ready to play: ' + ((pb.error && pb.error.message) || 'no stream found'), 'warn');
+      return;
+    }
+    var name = tidyFileName(pb.fileName || pb.displayName) || item.name;
+    Player.start({
+      item: { kind: 'movie', name: name, titleId: item.titleId }, episode: null,
+      profileId: profile.id, clientId: saved.clientId, resume: true,
+      manual: { libraryItem: true, releases: [{ title: name, serviceType: pb.sourceType || item.sourceType, knownPath: pb.streamPath }] },
+      onExit: function (message) {
+        homeStale = true;
+        if (from && document.body.contains(from)) Nav.focus(from); else Nav.first();
+        if (message) toast('Couldn\'t play that: ' + message, 'warn');
+      }
+    });
+  }
   function metaLine(item) {
     var bits = [];
     if (item.year) bits.push(item.year);
-    bits.push(item.kind === 'movie' ? 'Film' : 'Series');
+    bits.push(item.isLibraryItem ? (item.libraryName || 'Library') : item.kind === 'movie' ? 'Film' : 'Series');
     if (item.next) bits.push('Next: S' + item.next.season + ' E' + item.next.episode + (item.next.title ? ', ' + item.next.title : ''));
     return bits.join('   ');
   }
@@ -697,7 +786,9 @@
     var results = await Promise.all([
       Api.continueWatching(uid).catch(function (e) { return { error: e }; }),
       Api.watchlist(uid).catch(function (e) { return { error: e }; }),
-      Api.topTen(uid).catch(function (e) { return { error: e }; })
+      Api.topTen(uid, 'movie').catch(function (e) { return { error: e }; }),
+      Api.topTen(uid, 'series').catch(function (e) { return { error: e }; }),
+      Api.libraries().catch(function () { return []; })
     ]);
     if (results.every(function (r) { return r && r.error && r.error.status === 401; })) {
       var err = new Error('session'); err.status = 401; throw err;
@@ -721,8 +812,29 @@
     }
     if (Array.isArray(results[1]) && results[1].length) rows.push({ title: 'Your watchlist', items: results[1].map(fromWatchlist) });
     if (cal.length) rows.push(cal.shift());   // Coming soon, after your watchlist
-    var top = results[2] && results[2].items;
-    if (Array.isArray(top) && top.length) rows.push({ title: 'Top 10 today', items: top.map(function (t) { return fromTitle(t.title); }) });
+    // Top 10 today, films and series as separate rows.
+    [[results[2], 'Top 10 films today'], [results[3], 'Top 10 series today']].forEach(function (x) {
+      var top = x[0] && x[0].items;
+      if (Array.isArray(top) && top.length) rows.push({ title: x[1], items: top.map(function (t) { return fromTitle(t.title); }) });
+    });
+    // A row for each of mediastorm's library sources (local folders, or
+    // connected ones like Plex), most recently added first. Only ones that
+    // actually have something scanned show a row.
+    var libs = (Array.isArray(results[4]) ? results[4] : []).filter(function (l) { return l && l.lastScanStatus === 'complete' && l.lastScanTotal > 0; });
+    if (libs.length) {
+      var libRows = await Promise.all(libs.map(function (lib) {
+        return Api.libraryGroups(lib.id, 20, 0).catch(function () { return null; }).then(function (r) {
+          var groups = (r && r.groups) || [];
+          var items = groups.map(function (g) { return fromLibraryGroup(g, lib); }).filter(Boolean);
+          if (!items.length) return null;
+          if (typeof r.total === 'number' && r.total > items.length) {
+            items.push({ key: 'lib-more:' + lib.id, kind: 'seeAllLibrary', library: lib, name: 'See all', titleId: '' });
+          }
+          return { title: lib.name, items: items };
+        });
+      }));
+      libRows.filter(Boolean).forEach(function (row) { rows.push(row); });
+    }
     var failed = results.filter(function (r) { return r && r.error; }).length;
     return { rows: rows, failed: failed };
   }
@@ -774,6 +886,7 @@
       return '<section class="row"><h2>' + esc(row.title) + '</h2><div class="row-track">' +
         row.items.map(function (item) {
           var i = all.push(item) - 1;
+          if (item.kind === 'seeAllLibrary') return '<button class="card poster see-all" data-focus data-i="' + i + '" data-key="' + esc(item.key) + '">See all \u2192</button>';
           var img = row.wide ? (item.backdrop || item.poster) : (item.poster || item.backdrop);
           var bar = row.wide && item.percent > 1 ? '<i class="bar"><b style="width:' + Math.min(100, item.percent) + '%"></b></i>' : '';
           var label = row.wide
@@ -790,11 +903,13 @@
       '<div id="home"><div id="hero"><div class="hero-art"><img id="hero-a" alt="" decoding="async"><img id="hero-b" alt="" decoding="async"></div>' +
         '<div class="hero-text"><h1 id="hero-title"></h1><p class="meta" id="hero-meta"></p><p class="overview" id="hero-overview"></p></div>' +
         '<div class="home-bar"><button class="btn pill" data-focus id="home-search">Search</button>' +
+        '<button class="btn pill" data-focus id="home-genres">Genres</button>' +
         '<button class="btn pill quiet" data-focus id="home-profile">' + esc(profile.name) + '</button></div></div>' +
       '<div id="rows" data-vscroll><div class="rows-layer">' + (rowsHtml ||
         '<div class="empty">Nothing here yet. Add films and series to your watchlist in mediastorm and they\'ll appear here.</div>') + '</div></div></div>',
       'screen-home');
     document.getElementById('home-search').addEventListener('click', function () { searchState.focusKey = null; renderSearch(); });
+    document.getElementById('home-genres').addEventListener('click', function () { renderGenres(); });
     document.getElementById('home-profile').addEventListener('click', function () { renderProfiles(); });
     if (homeData.failed) toast('Some rows couldn\'t be loaded. Press Back and pick your profile again to retry.', 'warn');
 
@@ -832,7 +947,9 @@
     view.querySelectorAll('.card').forEach(function (c) {
       c.addEventListener('click', function () {
         var it = all[+c.getAttribute('data-i')];
-        if (it.focusEp) { titleReturn = null; renderTitle(it, null, it.focusEp); }
+        if (it.isLibraryItem) playLibraryItem(it, c);
+        else if (it.kind === 'seeAllLibrary') renderLibraryPage(it.library);
+        else if (it.focusEp) { titleReturn = null; renderTitle(it, null, it.focusEp); }
         else openTitle(it, null);
       });
     });
@@ -925,13 +1042,7 @@
     if (!item.imdb && title.imdbId) item.imdb = title.imdbId;
     if (title.id && title.id !== item.titleId) item.altIds = (item.altIds || []).concat([title.id]);
   }
-  function seriesIdsFor(item) {
-    var ids = [item.titleId].concat(item.altIds || []);
-    if (item.tvdb) ids.push('tvdb:series:' + item.tvdb);
-    if (item.tmdb) ids.push('tmdb:tv:' + item.tmdb);
-    if (item.imdb) ids.push(item.imdb);
-    return ids.filter(function (v, i, a) { return v && a.indexOf(v) === i; });
-  }
+  var seriesIdsFor = Util.showIds;
   async function watchStateFor(item) {
     var first = null;
     for (var i = 0, ids = seriesIdsFor(item); i < ids.length; i++) {
@@ -975,7 +1086,6 @@
     }, function () { watchedP = null; return watchedSet || {}; });
     return watchedP;
   }
-  function twoDigits(n) { n = String(n); return n.length < 2 ? '0' + n : n; }
   function freshWatchedKeys() { watchedSet = null; return watchedKeysNow(); }
   function filmWatched(set, keys) {
     return !!keys && keys.split('|').some(function (k) { return set[k]; });
@@ -994,6 +1104,7 @@
   function wkAttr(item) { var k = filmKeys(item); return k ? ' data-wk="' + esc(k) + '"' : ''; }
 
   function posterCard(item, i) {
+    if (item.kind === 'seeAllLibrary') return '<button class="card poster see-all" data-focus data-t="' + i + '">See all →</button>';
     return '<button class="card poster" data-focus data-t="' + i + '"' + wkAttr(item) + '>' +
       (item.poster ? imgTag(item.poster, 'w342', true) : '') +
       '<span class="card-fallback">' + esc(item.name) + (item.year ? ' (' + item.year + ')' : '') + '</span></button>';
@@ -1342,19 +1453,7 @@
     if (!inContinue(item)) return [];
     return [{ label: 'Remove from Continue watching', fn: function () { askRemoveContinue(item, afterRemove || function () {}); } }];
   }
-  function addRemoveContinue(item, actions) {
-    return;
-    var b = document.createElement('button');
-    b.className = 'btn quiet'; b.setAttribute('data-focus', ''); b.textContent = 'Remove from Continue watching';
-    b.addEventListener('click', function () {
-      askRemoveContinue(item, function () {
-        if (!document.body.contains(b)) return;
-        Nav.focus(document.getElementById('play-main'));
-        b.parentNode.removeChild(b);
-      });
-    });
-    actions.appendChild(b);
-  }
+
 
   async function renderMovie(item, message) {
     Nav.onBack(function () { goBackFromTitle(); });
@@ -1365,7 +1464,6 @@
     main.addEventListener('click', function () { play(item, { resume: true }); });
     var choose = pickerButton(function () { renderPicker(item, null, function () { renderMovie(item); }); });
     actions.appendChild(choose);
-    addRemoveContinue(item, actions);
     addTitleExtras(item);
     Nav.first();
     var over = null;
@@ -1447,7 +1545,11 @@
     moreTag(view.querySelector('.title-body .overview'), item.name, function () { return item.overview; });
     var main = document.getElementById('play-main');
     main.textContent = item.next ? 'Play S' + item.next.season + ' E' + item.next.episode + (item.next.title ? ': ' + item.next.title : '') : 'Play next episode';
-    main.addEventListener('click', function () { play(item, { resume: true, episode: item.next }); });
+    main.addEventListener('click', function () {
+      var n = item.next, e = n && findEp(n.season, n.episode);
+      if (e && !aired(e)) { notOutYet(e); return; }
+      play(item, { resume: true, episode: item.next });
+    });
     // Choose release acts on the episode you last rested on, or the next one.
     var pickFor = item.next || null;
     var choose = pickerButton(function () {
@@ -1456,7 +1558,6 @@
       renderPicker(item, ep, function () { renderSeries(item, null, ep); });
     });
     document.getElementById('actions').appendChild(choose);
-    addRemoveContinue(item, document.getElementById('actions'));
     function labelChoose() { choose.textContent = pickFor ? 'Choose release: S' + pickFor.season + ' E' + pickFor.episode : 'Choose release'; }
     labelChoose();
     Nav.first();
@@ -1505,11 +1606,13 @@
         var key = ep.seasonNumber + ':' + ep.episodeNumber;
         var img = ep.image && ep.image.url;
         var pct = partial[key];
-        return '<button class="card ep" data-focus data-ep="' + i + '">' +
+        var out = aired(ep);
+        return '<button class="card ep' + (out ? '' : ' unaired') + '" data-focus data-ep="' + i + '">' +
           (img ? imgTag(img, 'w500', true) : '') +
           '<span class="card-fallback">' + esc('E' + ep.episodeNumber) + '</span>' +
           (watched[key] ? '<i class="seen">Watched</i>' : '') +
-          '<span class="card-label"><em class="num">E' + ep.episodeNumber + '</em>' + esc(ep.name || 'Episode ' + ep.episodeNumber) + '</span>' +
+          '<span class="card-label"><em class="num">E' + ep.episodeNumber + '</em>' +
+            (out ? esc(ep.name || 'Episode ' + ep.episodeNumber) : esc('Airs ' + dayLabel(String(ep.airedDate).slice(0, 10)))) + '</span>' +
           (pct ? '<i class="bar"><b style="width:' + Math.min(100, pct) + '%"></b></i>' : '') +
           '</button>';
       }).join('');
@@ -1518,6 +1621,7 @@
       epsEl.querySelectorAll('.card').forEach(function (c) {
         c.addEventListener('click', function () {
           var ep = se.episodes[+c.getAttribute('data-ep')];
+          if (!aired(ep)) { notOutYet(ep); return; }
           play(item, { resume: true, episode: { season: ep.seasonNumber, episode: ep.episodeNumber, title: ep.name || '', aired: (ep.airedDate || '').slice(0, 10) } });
         });
         c.onhold = function () { episodeMenu(se, se.episodes[+c.getAttribute('data-ep')]); };
@@ -1556,6 +1660,23 @@
     }
     // Episodes that haven't aired yet can't be marked watched. Ones with no
     // date at all (common on older shows) are treated as out.
+    function findEp(season, episode) {
+      for (var i = 0; i < seasons.length; i++) {
+        if (seasons[i].number !== season) continue;
+        for (var j = 0; j < seasons[i].episodes.length; j++) if (seasons[i].episodes[j].episodeNumber === episode) return seasons[i].episodes[j];
+      }
+      return null;
+    }
+    function epLabel(ep) { return (ep.seasonNumber === 0 ? 'Special ' : 'S' + ep.seasonNumber + ' ') + 'E' + ep.episodeNumber; }
+    // An episode that isn't out yet: say when it's due, rather than searching for releases.
+    function notOutYet(ep) {
+      var when = ep.airedDate ? dayLabel(String(ep.airedDate).slice(0, 10)) : '';
+      var epObj = { season: ep.seasonNumber, episode: ep.episodeNumber, title: ep.name || '', aired: String(ep.airedDate || '').slice(0, 10) };
+      choiceBox('Not out yet', epLabel(ep) + (ep.name ? ', ' + ep.name + ',' : '') + ' airs ' + (when || 'soon') + '.', [{
+        label: 'Search anyway',
+        fn: function () { var keep = titleReturn; renderPicker(item, epObj, function () { titleReturn = keep; renderTitle(item, null, epObj); }); }
+      }]);
+    }
     function aired(ep) {
       var d = String(ep && ep.airedDate || '').slice(0, 10);
       return !d || d <= localDate(new Date());
@@ -1733,7 +1854,7 @@
       var bases = seriesIdsFor(item).map(function (id) { return 'episode:' + String(id).toLowerCase() + ':'; });
       seasons.forEach(function (se) {
         se.episodes.forEach(function (ep) {
-          var tail = 's' + twoDigits(ep.seasonNumber) + 'e' + twoDigits(ep.episodeNumber);
+          var tail = 's' + Util.pad2(ep.seasonNumber) + 'e' + Util.pad2(ep.episodeNumber);
           if (bases.some(function (b) { return keys[b + tail]; })) watched[ep.seasonNumber + ':' + ep.episodeNumber] = true;
         });
       });
@@ -1755,9 +1876,11 @@
       : nextFromWatched() || item.next;
     if (next) {
       item.next = next;
-      var at = resumeAt[next.season + ':' + next.episode];
-      main.textContent = (at ? 'Resume S' + next.season + ' E' + next.episode + ' from ' + fmtTime(at)
-                             : 'Play S' + next.season + ' E' + next.episode + (next.title ? ': ' + next.title : ''));
+      var at = resumeAt[next.season + ':' + next.episode], nextEp = findEp(next.season, next.episode);
+      main.textContent = nextEp && !aired(nextEp) && nextEp.airedDate
+        ? 'S' + next.season + ' E' + next.episode + ' airs ' + dayLabel(String(nextEp.airedDate).slice(0, 10))
+        : (at ? 'Resume S' + next.season + ' E' + next.episode + ' from ' + fmtTime(at)
+              : 'Play S' + next.season + ' E' + next.episode + (next.title ? ': ' + next.title : ''));
       document.getElementById('title-meta').textContent = metaLine(item);
       if ((again || !focusEpisode) && document.activeElement === main) { pickFor = next; labelChoose(); }
     }
@@ -1904,24 +2027,7 @@
              premiumize: 'Premiumize', debridlink: 'Debrid-Link' }[p] || provider;
   }
 
-  // mediastorm's reasons quote your terms as written, patterns included, like
-  // '(?i)\b(DV|DoVi)\b'. This turns them into plain words: "DV or DoVi".
-  function plainTerm(t) {
-    var s = String(t || '').trim();
-    if (/^\/.*\/[a-z]*$|\\[bsdw]|\(\?|[|]/.test(s)) {   // a pattern: keep just the words
-      s = s.replace(/^\/(.*)\/[a-z]*$/, '$1').replace(/\(\?[a-z]+\)/g, '')
-        .replace(/\\b/g, '').replace(/\\s\*|\\s\+|\\s|\.\?|\.\*|\.\+|\[[^\]]*\]\??/g, ' ')
-        .replace(/[()^$?*]/g, '').replace(/\|/g, ' or ').replace(/\s+/g, ' ').trim();
-    }
-    if (s && s === s.toLowerCase()) s = s.replace(/\b[a-z]{3,}/g, function (w) { return w.charAt(0).toUpperCase() + w.slice(1); });
-    return s || String(t || '');
-  }
-  function plainReason(r) {
-    return String(r || '').replace(/'([^']*)'/g, function (m, list) {
-      return list.split(/,\s*(?![^()]*\))/).map(plainTerm).join(', ');
-    }).replace(/\(combined weight (\d+)\)/, '(weight $1)');
-  }
-
+  var plainReason = Util.plainReason;
   var scoresSupported = null;   // whether this server has the scored search
   // A short "why it ranks here" from mediastorm's scoring breakdown.
   function rankingWhy(r) {
@@ -1941,7 +2047,7 @@
       '<p class="lede" id="picker-status">Searching your indexers</p>' +
       '<div class="picker-list" id="picker-list"></div></div>', 'screen-picker');
 
-    var pad2 = function (n) { return (n < 10 ? '0' : '') + n; };
+    var pad2 = Util.pad2;
     var query = item.name + (episode ? ' S' + pad2(episode.season) + 'E' + pad2(episode.episode) : '');
     // Specials (season 0) are often named by title or air date, so search those too.
     var special = episode && episode.season === 0, keyWords = [], dateKey = '', part = null;
@@ -2091,6 +2197,188 @@
     }
   }
 
+  // ---------- genres ----------
+  // TMDB's genres (films and series use slightly different lists), and a page
+  // of popular titles for each, loading more as you scroll.
+  var FILM_GENRES = [[28, 'Action'], [12, 'Adventure'], [16, 'Animation'], [35, 'Comedy'], [80, 'Crime'], [99, 'Documentary'],
+    [18, 'Drama'], [10751, 'Family'], [14, 'Fantasy'], [36, 'History'], [27, 'Horror'], [10402, 'Music'], [9648, 'Mystery'],
+    [10749, 'Romance'], [878, 'Science Fiction'], [53, 'Thriller'], [10752, 'War'], [37, 'Western']];
+  var SERIES_GENRES = [[10759, 'Action & Adventure'], [16, 'Animation'], [35, 'Comedy'], [80, 'Crime'], [99, 'Documentary'],
+    [18, 'Drama'], [10751, 'Family'], [10762, 'Kids'], [9648, 'Mystery'], [10764, 'Reality'], [10765, 'Sci-Fi & Fantasy'],
+    [10766, 'Soap'], [10767, 'Talk'], [10768, 'War & Politics'], [37, 'Western']];
+  var genreFocus = null;   // the tile to return to
+  function renderGenres() {
+    Nav.onBack(function () { renderHome(); });
+    function tiles(list, type) {
+      return list.map(function (g) {
+        return '<button class="chip genre" data-focus data-gt="' + type + '" data-gid="' + g[0] + '">' + esc(g[1]) + '</button>';
+      }).join('');
+    }
+    show(HOME_PILL + '<div class="genres-page"><h1>Genres</h1>' +
+      '<div class="suggest"><h3>Films</h3>' + tiles(FILM_GENRES, 'movie') + '</div>' +
+      '<div class="suggest"><h3>Series</h3>' + tiles(SERIES_GENRES, 'series') + '</div></div>', 'screen-genres');
+    view.querySelectorAll('[data-gid]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var type = b.getAttribute('data-gt'), id = +b.getAttribute('data-gid');
+        genreFocus = type + ':' + id;
+        renderGenre(type, id, b.textContent);
+      });
+    });
+    var back = genreFocus && view.querySelector('[data-gt="' + genreFocus.split(':')[0] + '"][data-gid="' + genreFocus.split(':')[1] + '"]');
+    Nav.focus(back || view.querySelector('[data-gid]'));
+  }
+  var GENRE_PAGE = 42;   // six rows of seven
+  async function renderGenre(type, id, name, state) {
+    state = state || { items: [], total: null, loading: false, focus: 0 };
+    Nav.onBack(function () { renderGenres(); });
+    // Like the home screen: the focused title's backdrop, name, year and
+    // description across the top, the posters below.
+    show(HOME_PILL + '<div class="genre-label">' + esc(name) + ' <span>' + (type === 'movie' ? 'films' : 'series') + '</span></div>' +
+      '<div id="hero" class="genre-hero"><div class="hero-art"><img id="hero-a" alt="" decoding="async"><img id="hero-b" alt="" decoding="async"></div>' +
+      '<div class="hero-text"><h1 id="hero-title"></h1><p class="meta" id="hero-meta"></p><p class="overview" id="hero-overview"></p></div></div>' +
+      '<div class="genre-page"><div class="genre-grid" id="genre-grid"></div><p class="muted" id="genre-status"></p></div>', 'screen-genre');
+    var grid = document.getElementById('genre-grid'), status = document.getElementById('genre-status');
+    var front = 'a', heroWait = null;
+    function hero(it) {
+      if (!document.getElementById('hero-title')) return;
+      document.getElementById('hero-title').textContent = it.name;
+      document.getElementById('hero-meta').textContent = metaLine(it);
+      document.getElementById('hero-overview').textContent = it.overview || '';
+      var full = it.backdrop || it.poster || '';
+      setTint(full);
+      var src = tmdbSize(full, 'w1280'), f = document.getElementById('hero-' + front), bk = document.getElementById('hero-' + (front === 'a' ? 'b' : 'a'));
+      if (!src) { f.className = ''; return; }
+      if (f.getAttribute('src') === src) return;
+      bk.onload = function () { bk.className = 'on'; f.className = ''; front = front === 'a' ? 'b' : 'a'; };
+      bk.onerror = function () { if (bk.getAttribute('src') !== full) bk.src = full; else f.className = ''; };
+      bk.src = src;
+    }
+    grid.addEventListener('focusin', function (e) {
+      var c = e.target.closest('[data-t]');
+      if (!c) return;
+      var it = state.items[+c.getAttribute('data-t')];
+      if (!it) return;
+      document.getElementById('hero-title').textContent = it.name;   // the name straight away
+      clearTimeout(heroWait);
+      heroWait = setTimeout(function () { hero(it); }, 300);          // the backdrop once you settle
+    });
+    function draw(from) {
+      var html = state.items.slice(from).map(function (it, k) { return posterCard(it, from + k); }).join('');
+      grid.insertAdjacentHTML('beforeend', html);
+      grid.querySelectorAll('[data-t]').forEach(function (c) {
+        if (c._wired) return;
+        c._wired = true;
+        var i = +c.getAttribute('data-t');
+        c.addEventListener('click', function () {
+          state.focus = i;
+          openTitle(state.items[i], function () { renderGenre(type, id, name, state); });
+        });
+        // Nearing the end of what's loaded: fetch the next page.
+        c.addEventListener('focus', function () { if (i >= state.items.length - 14) more(); });
+      });
+      paintWatchedPosters(grid);
+    }
+    async function more() {
+      if (state.loading || (state.total != null && state.items.length >= state.total)) return;
+      state.loading = true;
+      if (!state.items.length) status.textContent = 'Loading';
+      var r = await Api.discoverGenre(type, id, GENRE_PAGE, state.items.length, profile.id).catch(function (e) { return { error: e }; });
+      state.loading = false;
+      if (!document.body.contains(grid)) return;   // left the page
+      if (!r || r.error) { if (!state.items.length) status.textContent = 'Couldn\'t load ' + name + ': ' + ((r && r.error && r.error.message) || 'no reply'); return; }
+      var seen = {};
+      state.items.forEach(function (it) { seen[it.titleId] = true; });
+      var got = (r.items || []).map(function (x) { return x && x.title ? fromTitle(x.title) : null; })
+        .filter(function (it) { return it && !seen[it.titleId] && (seen[it.titleId] = true); });
+      state.total = typeof r.total === 'number' ? r.total : (got.length ? null : state.items.length);
+      if (!got.length) state.total = state.items.length;   // nothing new: stop asking
+      var from = state.items.length;
+      state.items = state.items.concat(got);
+      status.textContent = state.items.length ? '' : 'Nothing in ' + name + ' right now.';
+      draw(from);
+      if (from === 0) Nav.focus(grid.querySelector('[data-t]'));
+    }
+    if (state.items.length) {
+      draw(0);
+      var again = grid.querySelector('[data-t="' + state.focus + '"]');
+      Nav.focus(again || grid.querySelector('[data-t]'));
+    } else await more();
+  }
+
+  // ---------- a library's full list ----------
+  // Reached from "See all" on a home row that's showing only the newest 20.
+  var LIB_PAGE = 42;
+  async function renderLibraryPage(lib, state) {
+    state = state || { items: [], total: null, loading: false, focus: 0 };
+    Nav.onBack(function () { renderHome(); });
+    show(HOME_PILL + '<div class="genre-label">' + esc(lib.name) + '</div>' +
+      '<div id="hero" class="genre-hero"><div class="hero-art"><img id="hero-a" alt="" decoding="async"><img id="hero-b" alt="" decoding="async"></div>' +
+      '<div class="hero-text"><h1 id="hero-title"></h1><p class="meta" id="hero-meta"></p><p class="overview" id="hero-overview"></p></div></div>' +
+      '<div class="genre-page"><div class="genre-grid" id="genre-grid"></div><p class="muted" id="genre-status"></p></div>', 'screen-genre');
+    var grid = document.getElementById('genre-grid'), status = document.getElementById('genre-status');
+    var front = 'a', heroWait = null;
+    function hero(it) {
+      if (!document.getElementById('hero-title')) return;
+      document.getElementById('hero-title').textContent = it.name;
+      document.getElementById('hero-meta').textContent = metaLine(it);
+      document.getElementById('hero-overview').textContent = it.overview || '';
+      var full = it.backdrop || it.poster || '';
+      setTint(full);
+      var f = document.getElementById('hero-' + front), bk = document.getElementById('hero-' + (front === 'a' ? 'b' : 'a'));
+      if (!full) { f.className = ''; return; }
+      if (f.getAttribute('src') === full) return;
+      bk.onload = function () { bk.className = 'on'; f.className = ''; front = front === 'a' ? 'b' : 'a'; };
+      bk.onerror = function () { f.className = ''; };
+      bk.src = full;
+    }
+    grid.addEventListener('focusin', function (e) {
+      var c = e.target.closest('[data-t]');
+      if (!c) return;
+      var it = state.items[+c.getAttribute('data-t')];
+      if (!it) return;
+      document.getElementById('hero-title').textContent = it.name;
+      clearTimeout(heroWait);
+      heroWait = setTimeout(function () { hero(it); }, 300);
+    });
+    function draw(from) {
+      var html = state.items.slice(from).map(function (it, k) { return posterCard(it, from + k); }).join('');
+      grid.insertAdjacentHTML('beforeend', html);
+      grid.querySelectorAll('[data-t]').forEach(function (c) {
+        if (c._wired) return;
+        c._wired = true;
+        var i = +c.getAttribute('data-t');
+        c.addEventListener('click', function () {
+          state.focus = i;
+          playLibraryItem(state.items[i], c);
+        });
+        c.addEventListener('focus', function () { if (i >= state.items.length - 14) more(); });
+      });
+      paintWatchedPosters(grid);
+    }
+    async function more() {
+      if (state.loading || (state.total != null && state.items.length >= state.total)) return;
+      state.loading = true;
+      if (!state.items.length) status.textContent = 'Loading';
+      var r = await Api.libraryGroups(lib.id, LIB_PAGE, state.items.length).catch(function (e) { return { error: e }; });
+      state.loading = false;
+      if (!document.body.contains(grid)) return;
+      if (!r || r.error) { if (!state.items.length) status.textContent = 'Couldn\'t load ' + lib.name + ': ' + ((r && r.error && r.error.message) || 'no reply'); return; }
+      var seen = {};
+      state.items.forEach(function (it) { seen[it.libraryItemId] = true; });
+      var got = ((r.groups || []).map(function (g) { return fromLibraryGroup(g, lib); }))
+        .filter(function (it) { return it && !seen[it.libraryItemId] && (seen[it.libraryItemId] = true); });
+      state.total = typeof r.total === 'number' ? r.total : (got.length ? null : state.items.length);
+      if (!got.length) state.total = state.items.length;
+      var from = state.items.length;
+      state.items = state.items.concat(got);
+      status.textContent = state.items.length ? '' : 'Nothing in ' + lib.name + ' yet.';
+      draw(from);
+      if (from === 0) Nav.focus(grid.querySelector('[data-t]'));
+    }
+    if (state.items.length) { draw(0); Nav.focus(grid.querySelector('[data-t="' + state.focus + '"]') || grid.querySelector('[data-t]')); }
+    else await more();
+  }
+
   // ---------- search ----------
   // Typing searches titles as before. Ask AI sends the same text to the AI set
   // up in mediastorm as a description instead ("slow-burn sci-fi like Arrival"),
@@ -2173,6 +2461,7 @@
     // it was probably a description, so it goes to the AI instead. Ask AI
     // sends the same words to the AI on purpose.
     function searchSpoken(v) {
+      searchState.remember = true;   // a whole spoken phrase: worth keeping if it finds something
       searchState.query = v.slice(0, 200);
       searchState.mode = 'title';
       searchState.status = '';
@@ -2280,6 +2569,9 @@
 
   var searchTimer = null, searchSeq = 0;
   function edit(k) {
+    // Typing after an AI search (or a recent one) starts a new search, rather
+    // than adding letters to the end of the last one.
+    if (searchState.mode === 'ai' && k !== 'del' && k !== 'clear') searchState.query = '';
     if (k === 'del') searchState.query = searchState.query.slice(0, -1);
     else if (k === 'clear') searchState.query = '';
     else if (searchState.query.length < 200) searchState.query += k;
@@ -2326,6 +2618,7 @@
 
   async function runAI(q, noTitles) {
     clearTimeout(searchTimer);
+    searchState.remember = true;
     searchState.fellBack = !!noTitles;   // asked because no title matched what was said
     var seq = ++searchSeq;
     searchState.mode = 'ai';
@@ -2356,6 +2649,31 @@
     drawResults();
   }
 
+  // ---------- recent searches ----------
+  // The last six searches that found something, per profile, kept on this TV.
+  // Spoken and AI searches are saved when their results arrive; typed title
+  // searches when you open one of the results (so half-typed words aren't).
+  function recentKey() { return STORE + '-recent-' + (profile && profile.id); }
+  function readRecent() {
+    try { var l = JSON.parse(localStorage.getItem(recentKey())); return Array.isArray(l) ? l : []; } catch (e) { return []; }
+  }
+  function writeRecent(l) { try { localStorage.setItem(recentKey(), JSON.stringify(l.slice(0, 6))); } catch (e) { /* full */ } }
+  function rememberSearch(q, ai) {
+    q = String(q || '').trim();
+    if (q.length < 2) return;
+    var l = readRecent().filter(function (x) { return x.q.toLowerCase() !== q.toLowerCase(); });
+    l.unshift({ q: q, ai: !!ai });
+    writeRecent(l);
+  }
+  function forgetSearch(i) { var l = readRecent(); l.splice(i, 1); writeRecent(l); }
+  function rerunSearch(x) {
+    searchState.query = x.q;
+    searchState.status = '';
+    searchState.remember = true;
+    if (x.ai) runAI(x.q);
+    else { searchState.mode = 'title'; drawQuery(); runSearch(x.q, false); }
+  }
+
   function drawResults() {
     var box = document.getElementById('search-results');
     if (!box) return;
@@ -2365,13 +2683,35 @@
       ? (n ? (searchState.fellBack ? 'No titles matched, so here are AI picks for "' : 'AI picks for "') + searchState.aiQuery + '"' : '')
       : (n ? n + (n === 1 ? ' result' : ' results') : '');
     document.getElementById('search-caption').textContent = searchState.status || caption;
+    if (n && searchState.remember) {
+      searchState.remember = false;
+      rememberSearch(searchState.mode === 'ai' ? searchState.aiQuery : q, searchState.mode === 'ai');
+    }
     if (!n) {
       if (searchState.mode === 'ai') { box.innerHTML = '<p class="muted">The AI didn\'t come up with any matches. Try wording it differently.</p>'; return; }
       if (q.length >= 2) { box.innerHTML = '<p class="muted">No films or series found for "' + esc(q) + '". Press Ask AI to describe it instead.</p>'; return; }
-      // Nothing typed: offer one-press AI asks.
-      box.innerHTML = '<div class="suggest"><h3>Ask AI</h3>' + suggestions().map(function (t, i) {
+      // Nothing typed: your recent searches, then one-press AI asks.
+      var recent = readRecent();
+      box.innerHTML = (recent.length ? '<div class="suggest recent-row"><h3>Recent</h3>' + recent.map(function (x, i) {
+          return '<button class="chip recent" data-focus data-rc="' + i + '">' + (x.ai ? '<i class="ai-mark">✦</i> ' : '') + esc(x.q) + '</button>';
+        }).join('') + '<button class="chip quiet" data-focus id="recent-clear">Clear</button></div>' : '') +
+        '<div class="suggest"><h3>Ask AI</h3>' + suggestions().map(function (t, i) {
         return '<button class="chip" data-focus data-s="' + i + '">' + esc(t) + '</button>';
       }).join('') + '</div>';
+      box.querySelectorAll('[data-rc]').forEach(function (c) {
+        var x = recent[+c.getAttribute('data-rc')];
+        c.addEventListener('click', function () { rerunSearch(x); });
+        c.onhold = function () {   // hold OK: remove it
+          forgetSearch(+c.getAttribute('data-rc'));
+          toast('Removed "' + x.q + '" from recent searches.');
+          drawResults();
+          Nav.focus(document.querySelector('#search-results [data-rc]') || document.getElementById('speak'));
+        };
+      });
+      var clr = document.getElementById('recent-clear');
+      if (clr) clr.addEventListener('click', function () {
+        writeRecent([]); drawResults(); Nav.focus(document.getElementById('speak'));
+      });
       var list = suggestions();
       box.querySelectorAll('.chip').forEach(function (c) {
         c.addEventListener('click', function () {
@@ -2395,6 +2735,7 @@
       });
       c.addEventListener('click', function () {
         var item = searchState.results[+c.getAttribute('data-r')];
+        if (searchState.mode !== 'ai') rememberSearch(searchState.query, false);
         searchState.focusKey = item.key;
         document.removeEventListener('keydown', typeKey);
         openTitle(item, renderSearch);

@@ -2,6 +2,66 @@
 
 What changed in each version of mediastorm for LG webOS, newest first.
 
+## 1.11.2 (2026-10-15)
+
+- Library rows show only the newest 20, with a "See all" tile when there are
+  more. It opens the whole library as a scrolling grid, loading more as you
+  go, so a growing collection stays reachable.
+
+## 1.11.1 (2026-10-15)
+
+- Library cards (Plex and Jellyfin sources) now show a thumbnail, from
+  Plex/Jellyfin's own per-item image rather than a TMDB match, so it's safe
+  to show even for content mediastorm can't identify. Falls back to the
+  tidied title, as before, if there isn't one.
+
+## 1.11.0 (2026-10-14)
+
+- Library rows on the home screen: mediastorm's own folders and connected
+  sources (Plex, Jellyfin, and the like) each get a row, newest first, below
+  Top 10. Since these don't have real posters or titles, cards show a tidied
+  version of the file name. Playing one goes straight to the file mediastorm
+  already knows about, with no release search, and uses the normal player
+  (seeking, subtitles, resume and progress all work as usual). The name
+  tidying is best-effort; tell me if any look odd and I'll refine it.
+
+## 1.10.2 (2026-10-14)
+
+- Top 10 today is two rows on the home screen: Top 10 films and Top 10
+  series.
+
+## 1.10.1 (2026-10-13)
+
+- Genre pages show the selected title's name, year, description and
+  backdrop across the top, like the home screen, with the posters below.
+
+## 1.10.0 (2026-10-13)
+
+- Genres: a Genres button next to Search on the home screen opens film and
+  series genres; each shows its popular titles, loading more as you scroll.
+
+## 1.9.2 (2026-10-13)
+
+- Episodes that haven't aired say so. Their cards read "Airs Thu 16 Oct"
+  (dimmed), the Play button shows when the next one is due, and pressing one
+  says it's not out yet, with Search anyway for an early release, instead of
+  a failed search.
+
+## 1.9.1 (2026-10-13)
+
+- Code tidy-up, with no change to how the app works: helpers used by both the
+  player and the rest of the app now live once, in `js/util.js`; a leftover
+  unused function is gone; and `app.js` and `player.js` start with a list of
+  their sections.
+
+## 1.9.0 (2026-10-13)
+
+- Recent searches on the Search screen: your last six searches that found
+  something, as one-press buttons (AI ones marked ✦). Each profile has its
+  own; hold OK on one to remove it, or use Clear.
+- Typing after an AI search starts a new search instead of adding to the
+  end of the last one.
+
 ## 1.8.3 (2026-10-13)
 
 - Removed the fallback to mediastorm's server-side credits detection, which

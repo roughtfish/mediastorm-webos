@@ -71,7 +71,8 @@ var Api = (function () {
     hideContinue: function (userId, seriesId) {
       return call('POST', '/users/' + enc(userId) + '/history/continue/hide', { seriesId: seriesId });
     },
-    topTen: function (userId) { return call('GET', '/discover/top-ten?type=all&userId=' + enc(userId)); },
+    // type: 'movie', 'series' or 'all'.
+    topTen: function (userId, type) { return call('GET', '/discover/top-ten?type=' + enc(type || 'all') + '&userId=' + enc(userId)); },
 
     search: function (query, userId) {
       return call('GET', '/search?q=' + enc(query) + '&userId=' + enc(userId));
@@ -106,6 +107,25 @@ var Api = (function () {
       if (item.tvdb) q += '&tvdbId=' + enc(item.tvdb);
       if (item.imdb) q += '&imdbId=' + enc(item.imdb);
       return call('GET', '/metadata/trailers?' + q + '&userId=' + enc(userId));
+    },
+    // Popular titles in a TMDB genre, a page at a time.
+    discoverGenre: function (type, genreId, limit, offset, userId) {
+      return call('GET', '/discover/genre?type=' + enc(type) + '&genreId=' + enc(genreId) + '&limit=' + enc(limit) +
+        '&offset=' + enc(offset) + '&userId=' + enc(userId));
+    },
+    // Library items: mediastorm's own folders and connected sources (Plex,
+    // Jellyfin). libraries() lists them; libraryGroups() lists one's items,
+    // newest first; libraryPlayback() resolves one item to a playable path.
+    libraries: function () { return call('GET', '/library/libraries'); },
+    libraryGroups: function (libraryId, limit, offset) {
+      return call('GET', '/library/libraries/' + enc(libraryId) + '/groups?limit=' + enc(limit) +
+        '&offset=' + enc(offset) + '&sort=created&dir=desc');
+    },
+    libraryPlayback: function (itemId) { return call('GET', '/library/items/' + enc(itemId) + '/playback'); },
+    // Plex/Jellyfin's own thumbnail for an item (not a TMDB match, so safe
+    // even when mediastorm can't tell what the file actually is).
+    libraryArtworkUrl: function (itemId, kind) {
+      return server + '/library/items/' + enc(itemId) + '/artwork/' + enc(kind || 'poster') + '?token=' + enc(token);
     },
     similar: function (type, tmdbId, userId) {
       return call('GET', '/metadata/similar?type=' + enc(type) + '&tmdbId=' + enc(tmdbId) + '&userId=' + enc(userId));
