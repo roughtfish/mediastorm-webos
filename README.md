@@ -31,6 +31,9 @@ Not affiliated with or supported by the mediastorm project. Tested on an LG C5
   films about dogs") and, if no title matches, the AI suggests some. On TVs
   whose web engine has no speech recognition, Speak opens LG's keyboard, whose
   microphone key works instead
+- A screensaver: after 90 seconds idle on the home screen, the background
+  slowly cycles through your watchlist and recently added titles. Any key
+  ends it
 - Genres: film and series genres from the home screen, each with its popular
   titles, loading more as you scroll
 - Library rows: a home screen row for each of mediastorm's library sources
@@ -88,7 +91,8 @@ Not affiliated with or supported by the mediastorm project. Tested on an LG C5
   ranked for ("2160p · Dolby Vision preferred · Matched ATMOS"), and About
   this release in the player's Down menu shows where the playing release sat
   in mediastorm's ranking, why any above it were skipped, and mediastorm's
-  full scoring breakdown
+  full scoring breakdown, and the actual codec, resolution, frame
+  rate and bitrate being played, video and audio
 - If something won't play, a box explains why and offers Choose release
 - Specials (season 0) are often released under their own name or a different
   number. For those, Search by name and date also searches the special's own

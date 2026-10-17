@@ -2,6 +2,68 @@
 
 What changed in each version of mediastorm for LG webOS, newest first.
 
+## 1.12.4 (2026-10-16)
+
+- Fixed very long titles not being handled well. On the home screen, a long
+  title could push the year and type down far enough to overlap the row
+  below it; poster cards with no image showed a vertically-centred block of
+  text that, once too tall for the card, got clipped at both ends, losing
+  the very start of the title with no sign anything was cut off. Both now
+  stop cleanly after a few lines with an ellipsis, and the card text starts
+  from the title's own beginning rather than a random middle slice.
+
+## 1.12.3 (2026-10-16)
+
+- Fixed the screensaver being too zoomed in on some images. It had an extra
+  10% built into the frame on top of the normal pan and zoom, and titles
+  with no real backdrop were showing their poster cropped to fill the whole
+  screen; both are fixed, and poster-only titles are left out of the
+  rotation now rather than shown stretched.
+
+## 1.12.2 (2026-10-16)
+
+- A nicer card for library items that have no real thumbnail (a plain local
+  folder, for instance): a muted colour, steady per file, with a play glyph
+  and the title along the bottom, instead of plain text on a flat panel. Also
+  stops asking mediastorm for artwork on sources that can never have any,
+  so there's no wasted request first.
+
+## 1.12.1 (2026-10-16)
+
+- About this release now shows what's actually playing: the video's codec,
+  resolution, frame rate and bitrate, and the same for whichever audio track
+  is currently selected.
+
+## 1.12.0 (2026-10-16)
+
+- A screensaver: leave the home screen idle for a minute and a half, and the
+  background slowly cycles through your watchlist and recently added
+  titles, panning and crossfading between them. Any key press ends it and
+  returns to the home screen exactly as it was.
+
+## 1.11.6 (2026-10-16)
+
+- Fixed the progress bar briefly showing the previous episode's position
+  when a new one starts. It now clears straight away, before the new episode
+  has even loaded, rather than holding the old fill until the first update.
+
+## 1.11.5 (2026-10-16)
+
+- Continue watching cards now open straight on the right episode, the same
+  as New episodes cards, instead of just opening the series page.
+
+## 1.11.4 (2026-10-16)
+
+- Fixed local ("Other"-type) library rows never showing, like a plain folder
+  mediastorm hasn't title-matched. mediastorm doesn't fill in that library's
+  item count the normal way, and the app was only checking that count.
+
+## 1.11.3 (2026-10-15)
+
+- Fixed library thumbnails never loading: the address the app built for them
+  was missing `/api` from the path, so every request was a 404. It's a plain
+  URL mistake on my part, not anything to do with Plex or mediastorm.
+
 ## 1.11.2 (2026-10-15)
 
 - Library rows show only the newest 20, with a "See all" tile when there are

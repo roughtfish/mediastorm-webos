@@ -116,7 +116,8 @@ var Player = (function () {
     var v = real[0];
     var codec = String(v.codecName || '').toLowerCase();
     var info = { codec: codec, width: v.width, height: v.height, dv: v.hasDolbyVision, dvProfile: v.dolbyVisionProfile,
-                 hdr: v.hdrFormat || '', audio: (m.audioStreams || []).slice().sort(function (a, b) { return a.index - b.index; }),
+                 hdr: v.hdrFormat || '', bitRate: v.bitRate || 0, fps: v.avgFrameRate || '', profile: v.profile || '',
+                 audio: (m.audioStreams || []).slice().sort(function (a, b) { return a.index - b.index; }),
                  chapters: (m.chapters || []).map(function (ch) { return { title: ch.title || '', start: ch.start, end: ch.end || undefined }; }) };
     if (info.dv && dvProfileNumber(info.dvProfile) === 7) {
       return { ok: false, markBad: false, profile7: true, info: info,
@@ -433,6 +434,11 @@ var Player = (function () {
                                 hdrLabel(c.info)].filter(Boolean).join('    ');
     $('osd-release').textContent = c.name || '';
     $('osd-source').textContent = sourceLabel(c.path, url);
+    // A genuinely new episode (not just switching to a backup source for the
+    // same one): clear the progress bar and time straight away, rather than
+    // leaving the previous episode's fill showing until the new video's first
+    // timeupdate arrives.
+    if (!previous) { $('osd-bar').style.width = '0%'; $('osd-time').textContent = ''; }
     if (c.p7) osdNote('Dolby Vision profile 7: expect HDR10 rather than Dolby Vision.');
     else if (!previous && token.notes.length) {
       osdNote(token.notes.length === 1 ? token.notes[0] + ' Playing another release instead.'
@@ -690,6 +696,33 @@ var Player = (function () {
       else showCurrent();
     }
 
+    // Codec, resolution, frame rate and bitrate for the video, and for
+    // whichever audio track the TV currently has selected.
+    var VCODECS = { hevc: 'HEVC (H.265)', h265: 'HEVC (H.265)', h264: 'H.264 (AVC)', avc: 'H.264 (AVC)', av1: 'AV1',
+                    vp9: 'VP9', vp8: 'VP8', mpeg2video: 'MPEG-2', mpeg4: 'MPEG-4', vc1: 'VC-1' };
+    function fmtBitrate(bps) {
+      if (!bps) return '';
+      return bps >= 1000000 ? (bps / 1000000).toFixed(1) + ' Mbps' : Math.round(bps / 1000) + ' kbps';
+    }
+    function fmtFps(fr) {
+      var m = /^(\d+)\/(\d+)$/.exec(fr || '');
+      if (!m || +m[2] === 0) return '';
+      var v = (+m[1] / +m[2]);
+      var r = Math.round(v * 100) / 100;
+      return (r % 1 === 0 ? r : r.toFixed(2)) + ' fps';
+    }
+    function techLines() {
+      var c = s && s.current, i = c && c.info;
+      if (!i) return [];
+      var vcodec = VCODECS[String(i.codec || '').toLowerCase()] || String(i.codec || '').toUpperCase();
+      var video = ['Video', [vcodec, i.profile, i.width && i.height ? i.width + '\u00d7' + i.height : '',
+        fmtFps(i.fps), fmtBitrate(i.bitRate)].filter(Boolean).join(' \u00b7 ')];
+      var cur = enabledIndex(), row = cur >= 0 ? buildRows()[cur] : null;
+      var a = (row && i.audio && i.audio[row.i]) || (i.audio && i.audio[0]);
+      var audio = a ? ['Audio', [formatName(a), a.language ? langName(a.language) : '', a.sampleRate ? (a.sampleRate / 1000) + ' kHz' : '',
+        fmtBitrate(a.bitRate)].filter(Boolean).join(' \u00b7 ')] : null;
+      return audio ? [video, audio] : [video];
+    }
     function showCurrent() {
       var cur = enabledIndex();
       var r = cur >= 0 ? buildRows()[cur] : null;
@@ -769,10 +802,14 @@ var Player = (function () {
         });
       }
       if (c.switchedFrom) lines.push('Switched to this one during playback. The one before (' + c.switchedFrom.name + '): ' + c.switchedFrom.why + '.');
+      var tech = techLines();
       $('audio-list').innerHTML = '<h3>About this release</h3>' +
         '<p class="about-name">' + escapeHtml(c.name || 'Unnamed release') + '</p>' +
         '<p class="menu-note">' + escapeHtml(sourceLabel(c.path, video.currentSrc || '')) + '</p>' +
         lines.map(function (l) { return '<p class="about-line">' + escapeHtml(l) + '</p>'; }).join('') +
+        (tech.length ? '<h3>What\'s actually playing</h3>' + tech.map(function (t) {
+          return '<div class="score-row"><span>' + escapeHtml(t[0]) + '</span><small>' + escapeHtml(t[1]) + '</small></div>';
+        }).join('') : '') +
         '<h3>Why mediastorm ranks it here</h3><div id="about-scores"><p class="menu-note">Checking with mediastorm…</p></div>' +
         '<p class="menu-note">Back to return</p>';
       var my = ++aboutSeq;

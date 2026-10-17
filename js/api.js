@@ -125,7 +125,7 @@ var Api = (function () {
     // Plex/Jellyfin's own thumbnail for an item (not a TMDB match, so safe
     // even when mediastorm can't tell what the file actually is).
     libraryArtworkUrl: function (itemId, kind) {
-      return server + '/library/items/' + enc(itemId) + '/artwork/' + enc(kind || 'poster') + '?token=' + enc(token);
+      return server + '/api/library/items/' + enc(itemId) + '/artwork/' + enc(kind || 'poster') + '?token=' + enc(token);
     },
     similar: function (type, tmdbId, userId) {
       return call('GET', '/metadata/similar?type=' + enc(type) + '&tmdbId=' + enc(tmdbId) + '&userId=' + enc(userId));

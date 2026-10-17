@@ -180,6 +180,13 @@
 
   // ---------- helpers ----------
   var esc = Util.esc;
+  // A card's fallback text when there's no image: starts from the title's
+  // own beginning and trails off with an ellipsis if it's too long for the
+  // card, rather than a block simply centred and clipped, which for a very
+  // long title cuts off both the start and the end with no indication.
+  function fallbackSpan(name, extra) {
+    return '<span class="card-fallback"><b>' + esc(name) + (extra || '') + '</b></span>';
+  }
   function toast(text, kind) {
     toastEl.textContent = text;
     toastEl.className = 'on ' + (kind || '');
@@ -510,7 +517,10 @@
       name: cleanName(it.seriesTitle), year: it.year, overview: it.overview || (it.lastWatched && it.lastWatched.overview) || '',
       poster: it.posterUrl, backdrop: it.backdropUrl || (it.backdropUrls && it.backdropUrls[0]) || it.posterUrl,
       imdb: ext(it.externalIds, 'imdb'), tmdb: ext(it.externalIds, 'tmdb'), tvdb: ext(it.externalIds, 'tvdb'),
-      next: next, percent: isMovie ? (it.resumePercent || it.percentWatched || 0) : (it.resumePercent || 0)
+      next: next, percent: isMovie ? (it.resumePercent || it.percentWatched || 0) : (it.resumePercent || 0),
+      // So clicking the card lands straight on this episode, the same as a
+      // New episodes card, instead of just opening the series page.
+      focusEp: next ? { season: next.season, episode: next.episode } : null
     };
   }
   function fromWatchlist(it) {
@@ -570,9 +580,26 @@
       // Plex/Jellyfin generate their own thumbnail per item, even for content
       // with no title match, so it's safe to use (unlike a TMDB match, which
       // could easily be wrong for something like a sports recording).
-      poster: lib.sourceType ? Api.libraryArtworkUrl(it.id, 'poster') : '',
-      backdrop: lib.sourceType ? Api.libraryArtworkUrl(it.id, 'backdrop') : ''
+      // A plain local folder has no such thumbnail, so there's no point
+      // asking mediastorm for one; those get a designed placeholder instead.
+      poster: HAS_ARTWORK[lib.sourceType] ? Api.libraryArtworkUrl(it.id, 'poster') : '',
+      backdrop: HAS_ARTWORK[lib.sourceType] ? Api.libraryArtworkUrl(it.id, 'backdrop') : ''
     };
+  }
+  var HAS_ARTWORK = { plex: true, jellyfin: true };
+  // A designed stand-in for a library item with no real thumbnail: a muted
+  // colour (steady per title, so the same file always looks the same) with a
+  // small play glyph, and the title along the bottom like a real poster.
+  function strHue(str) {
+    var h = 0;
+    for (var i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
+    return h % 360;
+  }
+  function mediaFallback(item, attrs) {
+    return '<button class="card poster media-fallback" style="--hue:' + strHue(item.name || '') + '" data-focus ' + attrs + '>' +
+      '<svg class="media-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.4"/>' +
+      '<path d="M10 8.3v7.4l6.3-3.7z" fill="currentColor"/></svg>' +
+      '<span class="card-label">' + esc(item.name) + '</span></button>';
   }
   // Fetches a library item's real stream path and plays it directly, with no
   // release search: the file is already known. Reuses the normal player (its
@@ -820,7 +847,12 @@
     // A row for each of mediastorm's library sources (local folders, or
     // connected ones like Plex), most recently added first. Only ones that
     // actually have something scanned show a row.
-    var libs = (Array.isArray(results[4]) ? results[4] : []).filter(function (l) { return l && l.lastScanStatus === 'complete' && l.lastScanTotal > 0; });
+    // "Other"-type local libraries (a plain folder, not matched against TMDB)
+    // don't get a lastScanTotal from mediastorm, so lastScanDiscovered is the
+    // fallback for whether there's anything to show.
+    var libs = (Array.isArray(results[4]) ? results[4] : []).filter(function (l) {
+      return l && l.lastScanStatus === 'complete' && (l.lastScanTotal > 0 || l.lastScanDiscovered > 0);
+    });
     if (libs.length) {
       var libRows = await Promise.all(libs.map(function (lib) {
         return Api.libraryGroups(lib.id, 20, 0).catch(function () { return null; }).then(function (r) {
@@ -861,6 +893,7 @@
   async function renderHome(refresh) {
     Nav.onBack(function () { if (profiles.length > 1 || (profile && profile.pinLength)) renderProfiles(); });
     setTimeout(checkUpdates, 4000);   // once a day, after the home screen has settled
+    ssReset();
     // Show what's saved straight away and refresh behind it.
     if (!homeData && !refresh) {
       var cached = readHomeCache();
@@ -888,6 +921,7 @@
           var i = all.push(item) - 1;
           if (item.kind === 'seeAllLibrary') return '<button class="card poster see-all" data-focus data-i="' + i + '" data-key="' + esc(item.key) + '">See all \u2192</button>';
           var img = row.wide ? (item.backdrop || item.poster) : (item.poster || item.backdrop);
+          if (item.isLibraryItem && !img) return mediaFallback(item, 'data-i="' + i + '" data-key="' + esc(item.key) + '"' + wkAttr(item));
           var bar = row.wide && item.percent > 1 ? '<i class="bar"><b style="width:' + Math.min(100, item.percent) + '%"></b></i>' : '';
           var label = row.wide
             ? '<span class="card-label">' + esc(item.name) + (item.next ? '<em>S' + item.next.season + ' E' + item.next.episode +
@@ -895,7 +929,7 @@
             : '';
           return '<button class="card ' + (row.wide ? 'wide' : 'poster') + '" data-focus data-i="' + i + '" data-key="' + esc(item.key) + '"' + (row.wide ? '' : wkAttr(item)) + '>' +
             (img ? imgTag(img, row.wide ? 'w780' : 'w342', true) : '') +
-            '<span class="card-fallback">' + esc(item.name) + '</span>' + label + bar + '</button>';
+            fallbackSpan(item.name) + label + bar + '</button>';
         }).join('') + '</div></section>';
     }).join('');
 
@@ -1027,7 +1061,7 @@
   function personCard(p, i) {
     return '<button class="card person" data-focus data-p="' + i + '">' +
       (p.photo ? imgTag(p.photo, 'w185', true) : '') +
-      '<span class="card-fallback">' + esc(p.name) + '</span>' +
+      fallbackSpan(p.name) +
       '<span class="card-label">' + esc(p.name) + (p.character ? '<em>' + esc(p.character) + '</em>' : '') + '</span></button>';
   }
   // ---------- a show's IDs ----------
@@ -1105,9 +1139,10 @@
 
   function posterCard(item, i) {
     if (item.kind === 'seeAllLibrary') return '<button class="card poster see-all" data-focus data-t="' + i + '">See all →</button>';
+    if (item.isLibraryItem && !item.poster) return mediaFallback(item, 'data-t="' + i + '"' + wkAttr(item));
     return '<button class="card poster" data-focus data-t="' + i + '"' + wkAttr(item) + '>' +
       (item.poster ? imgTag(item.poster, 'w342', true) : '') +
-      '<span class="card-fallback">' + esc(item.name) + (item.year ? ' (' + item.year + ')' : '') + '</span></button>';
+      fallbackSpan(item.name, item.year ? ' (' + item.year + ')' : '') + '</button>';
   }
 
   // ---------- ratings ----------
@@ -1609,7 +1644,7 @@
         var out = aired(ep);
         return '<button class="card ep' + (out ? '' : ' unaired') + '" data-focus data-ep="' + i + '">' +
           (img ? imgTag(img, 'w500', true) : '') +
-          '<span class="card-fallback">' + esc('E' + ep.episodeNumber) + '</span>' +
+          fallbackSpan('E' + ep.episodeNumber) +
           (watched[key] ? '<i class="seen">Watched</i>' : '') +
           '<span class="card-label"><em class="num">E' + ep.episodeNumber + '</em>' +
             (out ? esc(ep.name || 'Episode ' + ep.episodeNumber) : esc('Airs ' + dayLabel(String(ep.airedDate).slice(0, 10)))) + '</span>' +
@@ -2197,6 +2232,84 @@
     }
   }
 
+  // ---------- screensaver ----------
+  // After the home screen sits idle for a while, a full-screen backdrop
+  // slideshow takes over, panning slowly and crossfading, the way Apple TV's
+  // own screensaver does — nothing functional, just a bit of delight. Any
+  // key press ends it and returns to the home screen exactly as it was.
+  var SS_IDLE_MS = 90000, SS_HOLD_MS = 9000, SS_FADE_MS = 1800;
+  var ssTimer = null, ssOn = false;
+  function ssReset() {
+    clearTimeout(ssTimer);
+    ssTimer = setTimeout(ssMaybeStart, SS_IDLE_MS);
+  }
+  function ssBusy() {
+    return ssOn || view.className !== 'screen-home' || document.getElementById('player').className === 'on' ||
+      !!document.getElementById('confirm') || !!document.getElementById('trailer');
+  }
+  function ssPictures() {
+    var seen = {}, out = [];
+    ((homeData && homeData.rows) || []).forEach(function (row) {
+      row.items.forEach(function (it) {
+        // A poster (tall) rather than a backdrop (wide) always ends up
+        // cropped in tight to fill the screen. Every card already falls back
+        // to the poster when there's no real backdrop (for the hero panel
+        // elsewhere), so that fallback has to be detected and skipped here,
+        // not just a missing field.
+        var img = it.backdrop && it.backdrop !== it.poster ? it.backdrop : '';
+        if (img && it.key && !seen[it.key]) { seen[it.key] = true; out.push(img); }
+      });
+    });
+    for (var i = out.length - 1; i > 0; i--) {   // a light shuffle, so it's not the same order every time
+      var j = Math.floor(Math.random() * (i + 1)), t = out[i]; out[i] = out[j]; out[j] = t;
+    }
+    return out;
+  }
+  function ssMaybeStart() {
+    if (ssBusy()) { ssReset(); return; }   // not the right moment: just check again later
+    var pics = ssPictures();
+    if (pics.length < 2) { ssReset(); return; }
+    ssStart(pics);
+  }
+  function ssStart(pics) {
+    ssOn = true;
+    var el = document.createElement('div');
+    el.id = 'screensaver';
+    el.innerHTML = '<div class="ss-pic" id="ss-a"></div><div class="ss-pic" id="ss-b"></div>';
+    document.body.appendChild(el);
+    var idx = -1, front = 'a', advance = null;
+    function show() {
+      idx++;
+      var back = front === 'a' ? 'b' : 'a';
+      var layer = document.getElementById('ss-' + back);
+      if (!layer) return;
+      layer.style.transition = 'none';
+      layer.style.opacity = '0';
+      layer.style.transform = 'scale(1) translate(0%, 0%)';
+      layer.style.backgroundImage = 'url("' + tmdbSize(pics[idx % pics.length], 'original') + '")';
+      void layer.offsetWidth;   // force the above to apply before transitioning back in
+      var dx = (Math.random() * 5 - 2.5).toFixed(1), dy = (Math.random() * 3 - 1.5).toFixed(1);
+      layer.style.transition = 'opacity ' + SS_FADE_MS + 'ms ease, transform ' + (SS_HOLD_MS + SS_FADE_MS) + 'ms linear';
+      layer.style.opacity = '1';
+      layer.style.transform = 'scale(1.08) translate(' + dx + '%, ' + dy + '%)';
+      layer.style.zIndex = '2';
+      document.getElementById('ss-' + front).style.zIndex = '1';
+      front = back;
+    }
+    show();
+    advance = setInterval(show, SS_HOLD_MS);
+    function dismiss(e) {
+      e.preventDefault(); e.stopImmediatePropagation();
+      clearInterval(advance);
+      document.removeEventListener('keydown', dismiss, true);
+      if (el.parentNode) el.parentNode.removeChild(el);
+      ssOn = false;
+      ssReset();
+    }
+    document.addEventListener('keydown', dismiss, true);
+  }
+  document.addEventListener('keydown', ssReset, true);   // any key anywhere pushes the idle clock back
+
   // ---------- genres ----------
   // TMDB's genres (films and series use slightly different lists), and a page
   // of popular titles for each, loading more as you scroll.
@@ -2724,7 +2837,7 @@
     box.innerHTML = searchState.results.map(function (item, i) {
       return '<button class="card poster" data-focus data-r="' + i + '" data-key="' + esc(item.key) + '"' + wkAttr(item) + '>' +
         (item.poster ? imgTag(item.poster, 'w342', true) : '') +
-        '<span class="card-fallback">' + esc(item.name) + (item.year ? ' (' + item.year + ')' : '') + '</span></button>';
+        fallbackSpan(item.name, item.year ? ' (' + item.year + ')' : '') + '</button>';
     }).join('');
     paintWatchedPosters(box);
     box.querySelectorAll('.card').forEach(function (c) {
