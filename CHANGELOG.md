@@ -2,6 +2,25 @@
 
 What changed in each version of mediastorm for LG webOS, newest first.
 
+## 1.12.8 (2026-10-16)
+
+- The previous fix for trailers giving up mid-ad wasn't enough on its own:
+  it only kept waiting when the page actually heard something, and multiple
+  ads back to back can go completely silent the whole way through, with no
+  signal at all until the real trailer starts. The trailer page now checks
+  in with the app every couple of seconds on its own, rather than only
+  speaking up when something changes, so the app has something to hear
+  through however many ads play.
+
+## 1.12.7 (2026-10-16)
+
+- Fixed trailers giving up part-way through a pre-roll ad and showing "This
+  trailer won't play here", interrupting what would have played fine. The
+  old 12-second timer didn't allow for an ad running first, and an ad
+  doesn't always trigger the same "now playing" signal the trailer itself
+  does. It now waits for a real stretch of silence from the page instead of
+  a single fixed window, so any activity, ad included, keeps it going.
+
 ## 1.12.6 (2026-10-16)
 
 - Trailers no longer default to the project's own GitHub Pages hosting when

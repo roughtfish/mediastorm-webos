@@ -60,6 +60,15 @@
         onApiChange: noCaptions
       }
     });
+    // Ad playback doesn't reliably trigger onStateChange the way the actual
+    // trailer does, so the app can't just wait for a "playing" event to know
+    // something's happening — through one ad, or several back to back, this
+    // keeps confirming the player is alive so the app doesn't give up on a
+    // trailer that's genuinely still on its way.
+    setInterval(function () {
+      if (!player) return;
+      try { tell('heartbeat', { state: player.getPlayerState(), time: now() }); } catch (e) { /* not ready */ }
+    }, 2000);
   };
 
   function noCaptions() {

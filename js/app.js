@@ -1331,7 +1331,7 @@
     var frame = box.querySelector('iframe'), keep = box.querySelector('.trailer-keep');
     Nav.setScope(box);
     keep.focus();
-    var playing = false, done = false;
+    var playing = false, done = false, lastHeard = Date.now();
     function send(cmd, extra) {
       var m = { ms: 'trailer', cmd: cmd };
       for (var k in extra || {}) m[k] = extra[k];
@@ -1340,12 +1340,22 @@
     function onMessage(e) {
       var d = e.data;
       if (!d || d.ms !== 'trailer' || done || e.source !== frame.contentWindow) return;
+      lastHeard = Date.now();   // any word from the page counts as "it's doing something"
       if (d.event === 'playing') playing = true;
       else if (d.event === 'ended') close();
       else if (d.event === 'error') fallback();
     }
     window.addEventListener('message', onMessage);
-    var watchdog = setTimeout(function () { if (!playing) fallback(); }, 12000);   // nothing played: try its app
+    // A pre-roll ad can run a while before the trailer itself starts, and
+    // doesn't always trigger the same "now playing" signal the trailer does,
+    // so a single short timer can give up mid-ad. This instead waits for a
+    // stretch of true silence from the page — any message at all, including
+    // through an ad, pushes the deadline back — and only falls back once
+    // nothing's been heard for a while.
+    var watchdog = setInterval(function () {
+      if (playing) { clearInterval(watchdog); return; }
+      if (Date.now() - lastHeard > 25000) { clearInterval(watchdog); fallback(); }
+    }, 1000);
     var refocus = setInterval(function () { if (document.activeElement !== keep) keep.focus(); }, 400);   // keep the remote's keys here
     function onKey(e) {
       var k = e.keyCode;
@@ -1359,7 +1369,7 @@
     function close() {
       if (done) return;
       done = true;
-      clearTimeout(watchdog); clearInterval(refocus);
+      clearInterval(watchdog); clearInterval(refocus);
       window.removeEventListener('message', onMessage);
       document.removeEventListener('keydown', onKey, true);
       if (box.parentNode) box.parentNode.removeChild(box);
