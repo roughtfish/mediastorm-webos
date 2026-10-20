@@ -2,7 +2,7 @@
 
 What changed in each version of mediastorm for LG webOS, newest first.
 
-## 1.12.9 (2026-10-16)
+## 1.12.9 (2026-10-20)
 
 - Fixed a visible stall opening a film or series page, image loading from
   the top with a pause partway through. It was the one image in the whole
@@ -10,7 +10,7 @@ What changed in each version of mediastorm for LG webOS, newest first.
   happened to supply, often the full original picture, sometimes several MB,
   rather than a size suited to the screen.
 
-## 1.12.8 (2026-10-16)
+## 1.12.8 (2026-10-20)
 
 - The previous fix for trailers giving up mid-ad wasn't enough on its own:
   it only kept waiting when the page actually heard something, and multiple
@@ -20,7 +20,7 @@ What changed in each version of mediastorm for LG webOS, newest first.
   speaking up when something changes, so the app has something to hear
   through however many ads play.
 
-## 1.12.7 (2026-10-16)
+## 1.12.7 (2026-10-20)
 
 - Fixed trailers giving up part-way through a pre-roll ad and showing "This
   trailer won't play here", interrupting what would have played fine. The
@@ -29,7 +29,7 @@ What changed in each version of mediastorm for LG webOS, newest first.
   does. It now waits for a real stretch of silence from the page instead of
   a single fixed window, so any activity, ad included, keeps it going.
 
-## 1.12.6 (2026-10-16)
+## 1.12.6 (2026-10-20)
 
 - Trailers no longer default to the project's own GitHub Pages hosting when
   `trailerPage` isn't set in `config.js`. Without it configured, the Trailer
@@ -39,7 +39,7 @@ What changed in each version of mediastorm for LG webOS, newest first.
   `config.js` both now say plainly that it needs setting for the in-app
   player to work.
 
-## 1.12.5 (2026-10-16)
+## 1.12.5 (2026-10-20)
 
 - Fixed a confusing update notice: mediastorm can flag a new build published
   under the same version number, which showed as "mediastorm 1.5.0 is
@@ -47,7 +47,7 @@ What changed in each version of mediastorm for LG webOS, newest first.
   of mediastorm 1.5.0 is available" when that's the case, and a later
   same-version build still gets its own notice rather than being missed.
 
-## 1.12.4 (2026-10-16)
+## 1.12.4 (2026-10-20)
 
 - Fixed very long titles not being handled well. On the home screen, a long
   title could push the year and type down far enough to overlap the row
@@ -57,7 +57,7 @@ What changed in each version of mediastorm for LG webOS, newest first.
   stop cleanly after a few lines with an ellipsis, and the card text starts
   from the title's own beginning rather than a random middle slice.
 
-## 1.12.3 (2026-10-16)
+## 1.12.3 (2026-10-20)
 
 - Fixed the screensaver being too zoomed in on some images. It had an extra
   10% built into the frame on top of the normal pan and zoom, and titles
@@ -65,7 +65,7 @@ What changed in each version of mediastorm for LG webOS, newest first.
   screen; both are fixed, and poster-only titles are left out of the
   rotation now rather than shown stretched.
 
-## 1.12.2 (2026-10-16)
+## 1.12.2 (2026-10-20)
 
 - A nicer card for library items that have no real thumbnail (a plain local
   folder, for instance): a muted colour, steady per file, with a play glyph
@@ -73,31 +73,31 @@ What changed in each version of mediastorm for LG webOS, newest first.
   stops asking mediastorm for artwork on sources that can never have any,
   so there's no wasted request first.
 
-## 1.12.1 (2026-10-16)
+## 1.12.1 (2026-10-20)
 
 - About this release now shows what's actually playing: the video's codec,
   resolution, frame rate and bitrate, and the same for whichever audio track
   is currently selected.
 
-## 1.12.0 (2026-10-16)
+## 1.12.0 (2026-10-20)
 
 - A screensaver: leave the home screen idle for a minute and a half, and the
   background slowly cycles through your watchlist and recently added
   titles, panning and crossfading between them. Any key press ends it and
   returns to the home screen exactly as it was.
 
-## 1.11.6 (2026-10-16)
+## 1.11.6 (2026-10-20)
 
 - Fixed the progress bar briefly showing the previous episode's position
   when a new one starts. It now clears straight away, before the new episode
   has even loaded, rather than holding the old fill until the first update.
 
-## 1.11.5 (2026-10-16)
+## 1.11.5 (2026-10-20)
 
 - Continue watching cards now open straight on the right episode, the same
   as New episodes cards, instead of just opening the series page.
 
-## 1.11.4 (2026-10-16)
+## 1.11.4 (2026-10-20)
 
 - Fixed local ("Other"-type) library rows never showing, like a plain folder
   mediastorm hasn't title-matched. mediastorm doesn't fill in that library's
