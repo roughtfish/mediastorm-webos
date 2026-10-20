@@ -2,6 +2,24 @@
 
 What changed in each version of mediastorm for LG webOS, newest first.
 
+## 1.12.6 (2026-10-16)
+
+- Trailers no longer default to the project's own GitHub Pages hosting when
+  `trailerPage` isn't set in `config.js`. Without it configured, the Trailer
+  button now offers the TV's YouTube app straight away, the same offer a
+  failed embed already gave, rather than quietly depending on hosting the
+  person building the app hasn't set up themselves. The README and
+  `config.js` both now say plainly that it needs setting for the in-app
+  player to work.
+
+## 1.12.5 (2026-10-16)
+
+- Fixed a confusing update notice: mediastorm can flag a new build published
+  under the same version number, which showed as "mediastorm 1.5.0 is
+  available" even with 1.5.0 already installed. It now says "a newer build
+  of mediastorm 1.5.0 is available" when that's the case, and a later
+  same-version build still gets its own notice rather than being missed.
+
 ## 1.12.4 (2026-10-16)
 
 - Fixed very long titles not being handled well. On the home screen, a long

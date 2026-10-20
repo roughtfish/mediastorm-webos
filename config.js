@@ -10,7 +10,9 @@ window.MS_CONFIG = {
   server: "",
   username: "",
   password: "",
-  // Optional: where the trailer page (docs/trailer.html) is hosted, if not on
-  // the project's own GitHub Pages.
+  // Where docs/trailer.html is hosted (see "Trailers" in the README), needed
+  // for the Trailer button to play inside the app at all. Leave it blank and
+  // trailers just open in the TV's YouTube app instead, which still works,
+  // just without the in-app player.
   trailerPage: ""
 };

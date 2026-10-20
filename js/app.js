@@ -675,11 +675,20 @@
     var notes = [];
     var server = Api.updateStatus().then(function (u) {
       var b = u && u.backend;
-      if (b && b.updateAvailable && b.latestVersion && st.server !== b.latestVersion) {
-        notes.push('mediastorm ' + b.latestVersion + ' is available (you have ' + (b.currentVersion || 'an older version') +
+      if (!b || !b.updateAvailable || !b.latestVersion) return;
+      // mediastorm can flag an update even when the version number is
+      // unchanged, if it's a newer build published under the same version;
+      // worded plainly here rather than saying "is available" of what you
+      // already appear to have. Keyed by build too, so a later same-version
+      // rebuild still gets its own notice rather than being silently missed.
+      var sameVersion = b.currentVersion && b.currentVersion === b.latestVersion;
+      var key = b.latestVersion + (sameVersion && b.latestBuildId ? ':' + b.latestBuildId : '');
+      if (st.server === key) return;
+      notes.push(sameVersion
+        ? 'A newer build of mediastorm ' + b.latestVersion + ' is available. Update it where you installed mediastorm.'
+        : 'mediastorm ' + b.latestVersion + ' is available (you have ' + (b.currentVersion || 'an older version') +
           '). Update it where you installed mediastorm.');
-        st.server = b.latestVersion;
-      }
+      st.server = key;
     }, function () {});
     var app = (appVersion ? fetch('https://api.github.com/repos/' + APP_REPO + '/releases/latest', { headers: { Accept: 'application/vnd.github+json' } })
         .then(function (r) { return r.ok ? r.json() : null; }) : Promise.resolve(null))
@@ -1296,8 +1305,21 @@
   // "Error 153"), and the app runs from the TV itself. So trailers play inside
   // a small page hosted on GitHub Pages (docs/trailer.html in the repo), shown
   // full-screen here. If that fails, the trailer opens in the TV's YouTube app.
-  var TRAILER_PAGE = (cfg && cfg.trailerPage) || 'https://roughtfish.github.io/mediastorm-webos/trailer.html';
+  // No default here on purpose: a build with no trailerPage set just offers
+  // the YouTube app instead of trying to embed, rather than quietly relying
+  // on someone else's GitHub Pages hosting without them having chosen to.
+  var TRAILER_PAGE = (cfg && cfg.trailerPage) || '';
   function playTrailer(item, key) {
+    // No trailer page configured: the same "leaving the app is your call"
+    // offer as a failed embed gets, rather than building a broken one with
+    // nowhere to point it.
+    if (!TRAILER_PAGE) {
+      choiceBox('This trailer won\'t play here', 'It can be opened in the TV\'s YouTube app instead. ' +
+        'Back or the home bar brings you back here afterwards.', [
+        { label: 'Open in YouTube', fn: function () { openInYouTubeApp(item, key); } }
+      ]);
+      return;
+    }
     var back = document.activeElement, prevBack = Nav.currentBack ? Nav.currentBack() : null;
     var box = document.createElement('div');
     box.id = 'trailer';
