@@ -2,6 +2,14 @@
 
 What changed in each version of mediastorm for LG webOS, newest first.
 
+## 1.12.9 (2026-10-16)
+
+- Fixed a visible stall opening a film or series page, image loading from
+  the top with a pause partway through. It was the one image in the whole
+  app that skipped the usual sizing step and loaded whatever the backend
+  happened to supply, often the full original picture, sometimes several MB,
+  rather than a size suited to the screen.
+
 ## 1.12.8 (2026-10-16)
 
 - The previous fix for trailers giving up mid-ad wasn't enough on its own:

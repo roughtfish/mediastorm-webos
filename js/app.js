@@ -1017,7 +1017,11 @@
 
   function titleShell(item, message, extra) {
     setTint(item.backdrop || item.poster || '');
-    return HOME_PILL + '<div class="title-art">' + (item.backdrop ? '<img src="' + esc(item.backdrop) + '" alt="" onerror="this.remove()">' : '') + '</div>' +
+    // This is the single biggest image in the app, and the only place that
+    // was requesting whatever size the backend happened to supply, often
+    // the full original, rather than sizing it the way every other image
+    // here does — the likely cause of a visible stall opening a title page.
+    return HOME_PILL + '<div class="title-art">' + (item.backdrop ? '<img src="' + esc(tmdbSize(item.backdrop, 'w1280')) + '" alt="" onerror="this.remove()">' : '') + '</div>' +
       '<div class="title-body' + (extra ? ' compact' : ' film') + '">' +
         '<h1>' + esc(item.name) + '</h1>' +
         '<div class="meta-row"><p class="meta" id="title-meta">' + esc(metaLine(item)) + '</p>' +
