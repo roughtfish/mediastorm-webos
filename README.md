@@ -162,15 +162,16 @@ Not affiliated with or supported by the mediastorm project. Tested on an LG C5
 ## Trailers
 
 **For the Trailer button to play inside the app, you need to publish**
-`docs/trailer.html` yourself and set its address in `trailerPage` in
-`config.js`. There's no default: with `trailerPage` left blank, trailers
-still work, they just open in the TV's YouTube app instead of playing
-embedded.
+`docs/trailer.html` yourself and give its address to the app, either in
+`trailerPage` in `config.js` before building, or directly on the TV's
+sign-in screen, which also remembers it from then on. There's no default
+either way: leave it unset and trailers still work, they just open in the
+TV's YouTube app instead of playing embedded.
 
 To publish it with GitHub Pages: in your fork's Settings, open Pages, choose
 "Deploy from a branch", then the `main` branch and the `/docs` folder, and
 save. It'll end up at `https://<your-username>.github.io/<repo-name>/trailer.html`,
-put that address in `trailerPage`.
+enter that address in `trailerPage` or on the sign-in screen.
 
 ## Remote control
 

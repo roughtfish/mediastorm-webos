@@ -2,6 +2,23 @@
 
 What changed in each version of mediastorm for LG webOS, newest first.
 
+## 1.13.0 (2026-10-20)
+
+- A trailer page address can now be entered on the sign-in screen itself,
+  the same as the server address, rather than only being set at build time
+  in config.js. Leave it blank and trailers open in the TV's YouTube app as
+  before; fill it in once and it's remembered on that TV from then on, same
+  as everything else on that screen. This means a release build can ship
+  with no default baked in at all, since anyone who wants the in-app player
+  can just type their own address in, without needing to build the app
+  themselves.
+
+## 1.12.10 (2026-10-20)
+
+- The screensaver now requests the same sized backdrop everything else in
+  the app uses, rather than the full original picture, so cycling through
+  images during idle time pulls less data each time.
+
 ## 1.12.9 (2026-10-20)
 
 - Fixed a visible stall opening a film or series page, image loading from

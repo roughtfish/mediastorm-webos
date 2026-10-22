@@ -715,6 +715,9 @@
         field('server', 'Server', 'url', saved.server || cfg.server || '') +
         field('username', 'Username', 'text', saved.username || cfg.username || '') +
         field('password', 'Password', 'password', cfg.password || '') +
+        field('trailerPage', 'Trailer page (optional)', 'url', saved.trailerPage || cfg.trailerPage || '') +
+        '<p class="field-hint">Leave this blank and trailers still work, opening in the TV\'s YouTube app ' +
+          'instead of playing in here. See "Trailers" in the README to set one up.</p>' +
         '<button class="btn primary" data-focus data-autofocus id="signin">Sign in</button>' +
         (message ? '<p class="error">' + esc(message) + '</p>' : '') +
         versionFooter() +
@@ -734,12 +737,13 @@
 
   async function signIn() {
     var server = val('server'), username = val('username'), password = view.querySelector('.field[data-key="password"] input').value;
+    var trailerPage = val('trailerPage');
     if (!server || !username || !password) { renderSetup('Enter the server address, username and password.'); return; }
     Api.configure({ server: server, token: '', clientId: saved.clientId });
     try {
       var r = await Api.login(username, password);
       if (!r || !r.token) throw new Error('The server didn\'t return a session.');
-      saved.server = server; saved.username = username; saved.token = r.token; save();
+      saved.server = server; saved.username = username; saved.token = r.token; saved.trailerPage = trailerPage; save();
       Api.configure({ token: r.token });
       await renderProfiles();
     } catch (e) {
@@ -1309,15 +1313,17 @@
   // "Error 153"), and the app runs from the TV itself. So trailers play inside
   // a small page hosted on GitHub Pages (docs/trailer.html in the repo), shown
   // full-screen here. If that fails, the trailer opens in the TV's YouTube app.
-  // No default here on purpose: a build with no trailerPage set just offers
-  // the YouTube app instead of trying to embed, rather than quietly relying
-  // on someone else's GitHub Pages hosting without them having chosen to.
-  var TRAILER_PAGE = (cfg && cfg.trailerPage) || '';
+  // No default baked in here on purpose: whoever's set up this TV chooses
+  // one, on the sign-in screen, in config.js, or not at all. A function
+  // rather than a value computed once, so one entered on the sign-in screen
+  // this session takes effect immediately rather than needing a restart.
+  function trailerPageUrl() { return saved.trailerPage || (cfg && cfg.trailerPage) || ''; }
   function playTrailer(item, key) {
+    var page = trailerPageUrl();
     // No trailer page configured: the same "leaving the app is your call"
     // offer as a failed embed gets, rather than building a broken one with
     // nowhere to point it.
-    if (!TRAILER_PAGE) {
+    if (!page) {
       choiceBox('This trailer won\'t play here', 'It can be opened in the TV\'s YouTube app instead. ' +
         'Back or the home bar brings you back here afterwards.', [
         { label: 'Open in YouTube', fn: function () { openInYouTubeApp(item, key); } }
@@ -1328,7 +1334,7 @@
     var box = document.createElement('div');
     box.id = 'trailer';
     box.innerHTML = '<iframe allow="autoplay; encrypted-media" allowfullscreen referrerpolicy="strict-origin-when-cross-origin" ' +
-      'src="' + esc(TRAILER_PAGE + (TRAILER_PAGE.indexOf('?') >= 0 ? '&' : '?') + 'v=' + encodeURIComponent(key)) + '"></iframe>' +
+      'src="' + esc(page + (page.indexOf('?') >= 0 ? '&' : '?') + 'v=' + encodeURIComponent(key)) + '"></iframe>' +
       '<div class="trailer-keep" tabindex="0" data-focus></div>' +
       '<div class="trailer-hint">' + esc(item.name) + ' · trailer. OK pauses, Back closes</div>';
     document.body.appendChild(box);
@@ -2322,7 +2328,7 @@
       layer.style.transition = 'none';
       layer.style.opacity = '0';
       layer.style.transform = 'scale(1) translate(0%, 0%)';
-      layer.style.backgroundImage = 'url("' + tmdbSize(pics[idx % pics.length], 'original') + '")';
+      layer.style.backgroundImage = 'url("' + tmdbSize(pics[idx % pics.length], 'w1280') + '")';
       void layer.offsetWidth;   // force the above to apply before transitioning back in
       var dx = (Math.random() * 5 - 2.5).toFixed(1), dy = (Math.random() * 3 - 1.5).toFixed(1);
       layer.style.transition = 'opacity ' + SS_FADE_MS + 'ms ease, transform ' + (SS_HOLD_MS + SS_FADE_MS) + 'ms linear';

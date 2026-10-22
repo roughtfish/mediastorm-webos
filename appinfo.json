@@ -1,6 +1,6 @@
 {
   "id": "com.mediastorm.tv",
-  "version": "1.12.9",
+  "version": "1.13.0",
   "vendor": "mediastorm-webos",
   "type": "web",
   "main": "index.html",
