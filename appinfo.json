@@ -1,6 +1,6 @@
 {
   "id": "com.mediastorm.tv",
-  "version": "1.13.0",
+  "version": "1.14.1",
   "vendor": "mediastorm-webos",
   "type": "web",
   "main": "index.html",
@@ -11,5 +11,7 @@
   "disableBackHistoryAPI": true,
   "requiredACG": [],
   "bgColor": "#18202D",
-  "iconColor": "#18202D"
+  "iconColor": "#18202D",
+  "splashBackground": "splash.png",
+  "splashColor": "#18202D"
 }

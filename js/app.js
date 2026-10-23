@@ -187,15 +187,16 @@
   function fallbackSpan(name, extra) {
     return '<span class="card-fallback"><b>' + esc(name) + (extra || '') + '</b></span>';
   }
-  function toast(text, kind) {
+  function toast(text, kind, ms) {
     toastEl.textContent = text;
     toastEl.className = 'on ' + (kind || '');
     clearTimeout(toastEl._t);
-    toastEl._t = setTimeout(function () { toastEl.className = ''; }, 7000);
+    toastEl._t = setTimeout(function () { toastEl.className = ''; }, ms || 7000);
   }
   // The full text of a description, in a box over the page. Up and Down scroll
   // it, and Back or OK closes it.
   function textBox(title, text) {
+    ignoreHeldOK();   // a still-held or stray OK shouldn't instantly activate Close
     var back = document.activeElement, prevBack = Nav.currentBack ? Nav.currentBack() : null;
     var box = document.createElement('div');
     box.id = 'confirm';
@@ -587,6 +588,19 @@
     };
   }
   var HAS_ARTWORK = { plex: true, jellyfin: true };
+  // The newest 20 items from one library source, as a home row — shared by
+  // the initial home load and the row's own refresh button, so a library
+  // added to since the app opened doesn't need a full app restart to show.
+  async function buildLibraryRow(lib) {
+    var r = await Api.libraryGroups(lib.id, 20, 0).catch(function () { return null; });
+    var groups = (r && r.groups) || [];
+    var items = groups.map(function (g) { return fromLibraryGroup(g, lib); }).filter(Boolean);
+    if (!items.length) return null;
+    if (typeof r.total === 'number' && r.total > items.length) {
+      items.push({ key: 'lib-more:' + lib.id, kind: 'seeAllLibrary', library: lib, name: 'See all', titleId: '' });
+    }
+    return { title: lib.name, items: items, library: lib };
+  }
   // A designed stand-in for a library item with no real thumbnail: a muted
   // colour (steady per title, so the same file always looks the same) with a
   // small play glyph, and the title along the bottom like a real poster.
@@ -646,7 +660,47 @@
   function versionLine() {
     return 'mediastorm for webOS' + (appVersion ? ' ' + appVersion : '') + (serverVersionText ? ' · Server: mediastorm ' + serverVersionText : '');
   }
-  function versionFooter() { return '<p class="app-version" id="app-version">' + esc(versionLine()) + '</p>'; }
+  function versionFooter(clickable) {
+    return clickable
+      ? '<button class="app-version" id="app-version" data-focus>' + esc(versionLine()) + '</button>'
+      : '<p class="app-version" id="app-version">' + esc(versionLine()) + '</p>';
+  }
+  // The last several releases' own notes, for the What's New screen reached
+  // from the version line on the profile screen. Kept here by hand rather
+  // than read from GitHub's release notes, since those aren't guaranteed to
+  // carry this text — update this alongside CHANGELOG.md for a new release
+  // that's worth mentioning; a small housekeeping one needn't be added.
+  var WHATS_NEW = [
+    { v: '1.13.0', items: [
+      'A trailer page address can be entered on the sign-in screen itself, remembered on that TV from then on, rather than only set at build time.'
+    ] },
+    { v: '1.12.9', items: [
+      'Fixed a stall opening a film or series page: the backdrop image now loads at a size suited to the screen, not the full original picture.'
+    ] },
+    { v: '1.12.8', items: [
+      'Fixed trailers giving up partway through an ad and offering YouTube instead, even when the trailer itself was about to play fine.'
+    ] },
+    { v: '1.12.4', items: [
+      'Fixed very long titles overlapping other text on the home screen, and poster cards losing the start of a long title with no sign anything was cut off.'
+    ] },
+    { v: '1.12.0', items: [
+      'A screensaver: leave the home screen idle for a minute and a half, and the background slowly cycles through your watchlist and recent additions.'
+    ] },
+    { v: '1.11.5', items: [
+      'Continue watching cards now open straight on the right episode, the same as New episodes cards.'
+    ] },
+    { v: '1.11.0', items: [
+      'Library rows: a home screen row for each of mediastorm\'s own library sources (local folders, Plex, Jellyfin), playing straight through with no release search.'
+    ] },
+    { v: '1.10.0', items: [
+      'Genres: film and series genres from the home screen, each with their popular titles.'
+    ] }
+  ];
+  function showWhatsNew() {
+    textBox('What\'s new', WHATS_NEW.map(function (r) {
+      return r.v + '\n' + r.items.join('\n');
+    }).join('\n\n'));
+  }
   function loadServerVersion() {
     Api.serverVersion().then(function (v) {
       var ver = v && (v.version || v.Version);
@@ -776,12 +830,13 @@
             '<div class="name">' + esc(p.name) + (p.pinLength ? ' <small>PIN</small>' : '') + '</div></button>';
         }).join('') + '</div>' +
         '<button class="btn quiet" data-focus id="signout">Sign out of this TV</button>' +
-        versionFooter() +
+        versionFooter(true) +
       '</div>', 'screen-profiles');
     loadServerVersion();
     view.querySelectorAll('.profile').forEach(function (b) {
       b.addEventListener('click', function () { chooseProfile(profiles[+b.getAttribute('data-index')]); });
     });
+    document.getElementById('app-version').addEventListener('click', showWhatsNew);
     document.getElementById('signout').addEventListener('click', function () {
       Api.logout().catch(function () {});
       (saved.profiles || []).forEach(function (p) {
@@ -867,17 +922,7 @@
       return l && l.lastScanStatus === 'complete' && (l.lastScanTotal > 0 || l.lastScanDiscovered > 0);
     });
     if (libs.length) {
-      var libRows = await Promise.all(libs.map(function (lib) {
-        return Api.libraryGroups(lib.id, 20, 0).catch(function () { return null; }).then(function (r) {
-          var groups = (r && r.groups) || [];
-          var items = groups.map(function (g) { return fromLibraryGroup(g, lib); }).filter(Boolean);
-          if (!items.length) return null;
-          if (typeof r.total === 'number' && r.total > items.length) {
-            items.push({ key: 'lib-more:' + lib.id, kind: 'seeAllLibrary', library: lib, name: 'See all', titleId: '' });
-          }
-          return { title: lib.name, items: items };
-        });
-      }));
+      var libRows = await Promise.all(libs.map(buildLibraryRow));
       libRows.filter(Boolean).forEach(function (row) { rows.push(row); });
     }
     var failed = results.filter(function (r) { return r && r.error; }).length;
@@ -896,8 +941,13 @@
       homeData = fresh;
       writeHomeCache(fresh);
       // Redraw only if something changed and the home screen is still showing;
-      // focus returns to the same card.
-      if (changed && view.className === 'screen-home' && !Player.active) renderHome();
+      // focus returns to the same card. Not while something like What's new
+      // is open on top of it, though: redrawing home rebuilds its own back
+      // handler and navigation scope, which would pull the rug out from
+      // under a dialog that's relying on those staying put until it closes
+      // itself. The fresh data's already saved either way, so it's simply
+      // picked up the next time home actually redraws.
+      if (changed && view.className === 'screen-home' && !Player.active && !document.getElementById('confirm')) renderHome();
     } catch (e) {
       if (e.status === 401) { saved.token = ''; save(); renderSetup('Your session has ended. Sign in again.'); }
     } finally { homeRefreshing = false; }
@@ -928,22 +978,35 @@
     }
     var all = [];
     homeItems = all;
+    // One row's card, the same for the initial render and a row's own
+    // refresh. "wide" rows (Continue watching, New episodes) carry a label
+    // and progress bar; poster rows don't.
+    function homeCardHtml(item, wide) {
+      var i = all.push(item) - 1;
+      if (item.kind === 'seeAllLibrary') return '<button class="card poster see-all" data-focus data-i="' + i + '" data-key="' + esc(item.key) + '">See all \u2192</button>';
+      var img = wide ? (item.backdrop || item.poster) : (item.poster || item.backdrop);
+      if (item.isLibraryItem && !img) return mediaFallback(item, 'data-i="' + i + '" data-key="' + esc(item.key) + '"' + wkAttr(item));
+      var bar = wide && item.percent > 1 ? '<i class="bar"><b style="width:' + Math.min(100, item.percent) + '%"></b></i>' : '';
+      var label = wide
+        ? '<span class="card-label">' + esc(item.name) + (item.next ? '<em>S' + item.next.season + ' E' + item.next.episode +
+            (item.note ? ' · ' + esc(item.note) : '') + '</em>' : (item.note ? '<em>' + esc(item.note) + '</em>' : '')) + '</span>'
+        : '';
+      return '<button class="card ' + (wide ? 'wide' : 'poster') + '" data-focus data-i="' + i + '" data-key="' + esc(item.key) + '"' + (wide ? '' : wkAttr(item)) + '>' +
+        (img ? imgTag(img, wide ? 'w780' : 'w342', true) : '') +
+        fallbackSpan(item.name) + label + bar + '</button>';
+    }
     var rowsHtml = homeData.rows.map(function (row) {
-      return '<section class="row"><h2>' + esc(row.title) + '</h2><div class="row-track">' +
-        row.items.map(function (item) {
-          var i = all.push(item) - 1;
-          if (item.kind === 'seeAllLibrary') return '<button class="card poster see-all" data-focus data-i="' + i + '" data-key="' + esc(item.key) + '">See all \u2192</button>';
-          var img = row.wide ? (item.backdrop || item.poster) : (item.poster || item.backdrop);
-          if (item.isLibraryItem && !img) return mediaFallback(item, 'data-i="' + i + '" data-key="' + esc(item.key) + '"' + wkAttr(item));
-          var bar = row.wide && item.percent > 1 ? '<i class="bar"><b style="width:' + Math.min(100, item.percent) + '%"></b></i>' : '';
-          var label = row.wide
-            ? '<span class="card-label">' + esc(item.name) + (item.next ? '<em>S' + item.next.season + ' E' + item.next.episode +
-                (item.note ? ' · ' + esc(item.note) : '') + '</em>' : (item.note ? '<em>' + esc(item.note) + '</em>' : '')) + '</span>'
-            : '';
-          return '<button class="card ' + (row.wide ? 'wide' : 'poster') + '" data-focus data-i="' + i + '" data-key="' + esc(item.key) + '"' + (row.wide ? '' : wkAttr(item)) + '>' +
-            (img ? imgTag(img, row.wide ? 'w780' : 'w342', true) : '') +
-            fallbackSpan(item.name) + label + bar + '</button>';
-        }).join('') + '</div></section>';
+      var refreshId = row.library ? 'row-refresh-' + row.library.id.replace(/[^a-zA-Z0-9]/g, '') : '';
+      var refreshBtn = row.library
+        ? '<button class="row-refresh" id="' + refreshId + '" data-focus data-refresh-lib="' + esc(row.library.id) + '" aria-label="Refresh ' + esc(row.title) + '">\u21bb</button>'
+        : '';
+      // A small button above a wide row of cards loses out to the row above
+      // on pure geometry, so Up from this row is told explicitly where to
+      // go, the same way the episode grid already points Up at its own
+      // season tab rather than whatever's nearest on screen.
+      var trackUp = refreshId ? ' data-up="#' + refreshId + '"' : '';
+      return '<section class="row"><h2>' + esc(row.title) + refreshBtn + '</h2><div class="row-track"' + trackUp + '>' +
+        row.items.map(function (item) { return homeCardHtml(item, row.wide); }).join('') + '</div></section>';
     }).join('');
 
     show(
@@ -998,6 +1061,38 @@
         else if (it.kind === 'seeAllLibrary') renderLibraryPage(it.library);
         else if (it.focusEp) { titleReturn = null; renderTitle(it, null, it.focusEp); }
         else openTitle(it, null);
+      });
+    });
+    // A library row's own refresh: re-fetches just that row, fresh, without
+    // touching the rest of the home screen — for something added to
+    // mediastorm's library since the app opened, which nothing else here
+    // would otherwise notice short of restarting the app.
+    view.querySelectorAll('.row-refresh').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (btn.classList.contains('spinning')) return;   // already refreshing
+        var libId = btn.getAttribute('data-refresh-lib');
+        var row = homeData.rows.filter(function (r) { return r.library && r.library.id === libId; })[0];
+        if (!row) return;
+        btn.classList.add('spinning');
+        buildLibraryRow(row.library).then(function (fresh) {
+          btn.classList.remove('spinning');
+          if (!fresh) { toast('Nothing in ' + row.title + ' right now.'); return; }
+          row.items = fresh.items;
+          var track = btn.closest('.row').querySelector('.row-track');
+          track.innerHTML = fresh.items.map(function (item) { return homeCardHtml(item, false); }).join('');
+          track.querySelectorAll('.card').forEach(function (c) {
+            c.addEventListener('click', function () {
+              var it = all[+c.getAttribute('data-i')];
+              if (it.isLibraryItem) playLibraryItem(it, c);
+              else if (it.kind === 'seeAllLibrary') renderLibraryPage(it.library);
+            });
+          });
+          paintWatchedPosters(track);
+          toast(row.title + ' refreshed.');
+        }, function () {
+          btn.classList.remove('spinning');
+          toast('Couldn\'t refresh ' + row.title + '.', 'warn');
+        });
       });
     });
 

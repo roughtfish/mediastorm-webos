@@ -2,6 +2,81 @@
 
 What changed in each version of mediastorm for LG webOS, newest first.
 
+## 1.14.1 (2026-10-20)
+
+- A refresh button next to a library row's title (Evo Downloads, or any
+  other mediastorm library source), for picking up something added since
+  the app was opened without restarting it. Refreshes just that row, the
+  rest of the home screen stays exactly as it was.
+
+## 1.14.0 (2026-10-20)
+
+- A proper splash screen: webOS now shows the app's own background colour
+  and the bolt mark the instant it's launched, rather than a blank screen
+  until the page itself has loaded. This is a genuine platform feature
+  (`splashBackground`/`splashColor` in appinfo.json), shown natively before
+  any of the app's own code has even started running, so it covers the one
+  gap nothing in the app itself ever could.
+
+## 1.13.11 (2026-10-20)
+
+- Removed What's new auto-showing on update. After several attempts at
+  tracking down why it kept flashing and vanishing on a real device, each
+  fix closing off one genuine possibility without being the actual cause,
+  it's been dropped rather than keep guessing. The button on the profile
+  screen stays, since that's worked correctly throughout.
+
+## 1.13.8 (2026-10-20)
+
+- Fixed What's new showing nothing (or showing then vanishing) for real this
+  time: it's checked from two places, once the app's version is known and
+  once home finishes loading, since either can genuinely happen first on a
+  real device, and both were regularly firing close enough together that
+  the second one found the first's own answer already on record and
+  reported nothing to show, undoing it. It's now decided once, ever, per
+  app launch, no matter how many times or where it's asked from.
+
+## 1.13.5 (2026-10-20)
+
+- Fixed What's new auto-closing almost instantly. The previous fix was the
+  wrong mechanism: this one's a stray or still-held OK press landing on the
+  auto-focused Close button the moment it appears and activating it, a
+  known class of problem the app already guards against everywhere else a
+  new screen appears, just not here yet. It now gets that same guard.
+
+## 1.13.4 (2026-10-20)
+
+- Fixed What's new flashing up then disappearing: the home screen can
+  quietly refresh itself in the background shortly after it loads, the AI
+  picks row finishing late is a common cause, and that refresh was
+  rebuilding home's own navigation underneath the box, cutting it loose
+  even though it hadn't actually been closed. The background refresh now
+  waits until nothing like that is open before redrawing.
+
+## 1.13.3 (2026-10-20)
+
+- Fixed What's new not appearing on the update that introduced it: the
+  tracking it relies on had nothing recorded yet for anyone updating into
+  that release, so it silently treated every existing install like a fresh
+  one. An already-signed-in install is now itself taken as a sign this isn't
+  someone's first run. Only matters for this one update; from here on it
+  tracks normally.
+
+## 1.13.2 (2026-10-20)
+
+- What's new now opens by itself, once, the first time the home screen
+  loads after the app's been updated, rather than only being a button to
+  go find on the profile screen. Still there as a button too, for looking
+  back at it later. Doesn't show anything on a fresh install, since there's
+  nothing "new" to someone who just installed it.
+
+## 1.13.1 (2026-10-20)
+
+- A What's new box, opened from the version line on the profile screen,
+  showing the last several releases' own notes, newest first. Kept inside
+  the app itself rather than read from GitHub, since release notes aren't
+  guaranteed to be there.
+
 ## 1.13.0 (2026-10-20)
 
 - A trailer page address can now be entered on the sign-in screen itself,

@@ -61,6 +61,9 @@
 
   /* ---------- sign in, PIN, messages ---------- */
   .app-version { margin: 40px 0 0; font-size: 20px; color: var(--muted); opacity: .7; }
+  button.app-version { display: block; background: none; border: 4px solid transparent; border-radius: 8px;
+    padding: 6px 10px; margin-left: -10px; font: inherit; cursor: pointer; }
+  button.app-version:focus { opacity: 1; border-color: var(--bolt); color: var(--text); }
   .center-panel { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 780px; }
   .center-panel.wide { width: 1500px; text-align: center; }
   .center-panel h1 { font-size: 56px; font-weight: 600; margin: 0 0 16px; }
@@ -105,7 +108,12 @@
   #rows { position: absolute; left: 0; right: 0; top: 560px; bottom: 0; overflow: hidden; }
   .rows-layer { will-change: transform; transition: transform .18s ease-out; }
   .row { margin: 0 0 34px; }
-  .row h2 { font-size: 30px; font-weight: 600; margin: 0 0 14px var(--pad); color: var(--muted); }
+  .row h2 { font-size: 30px; font-weight: 600; margin: 0 0 14px var(--pad); color: var(--muted); display: flex; align-items: center; gap: 14px; }
+  .row-refresh { font-size: 26px; line-height: 1; color: var(--muted); background: none; border: 3px solid transparent;
+    border-radius: 8px; padding: 4px 8px; cursor: pointer; }
+  .row-refresh:focus { color: var(--text); border-color: var(--bolt); }
+  .row-refresh.spinning { animation: row-refresh-spin 0.8s linear infinite; }
+  @keyframes row-refresh-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
   .row-track { display: flex; gap: 28px; overflow: hidden; padding: 8px var(--pad) 12px; scroll-behavior: smooth; }
   .card {
     position: relative; flex: none; padding: 0; overflow: hidden; border-radius: 12px;
