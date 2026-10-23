@@ -2,6 +2,12 @@
 
 What changed in each version of mediastorm for LG webOS, newest first.
 
+## 1.14.2 (2026-10-20)
+
+- The library row's refresh button now uses a proper curled-arrow icon,
+  drawn as an SVG for a crisp, consistent look, rather than a text
+  character that depends on the TV's own font support.
+
 ## 1.14.1 (2026-10-20)
 
 - A refresh button next to a library row's title (Evo Downloads, or any

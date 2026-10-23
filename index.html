@@ -109,8 +109,9 @@
   .rows-layer { will-change: transform; transition: transform .18s ease-out; }
   .row { margin: 0 0 34px; }
   .row h2 { font-size: 30px; font-weight: 600; margin: 0 0 14px var(--pad); color: var(--muted); display: flex; align-items: center; gap: 14px; }
-  .row-refresh { font-size: 26px; line-height: 1; color: var(--muted); background: none; border: 3px solid transparent;
-    border-radius: 8px; padding: 4px 8px; cursor: pointer; }
+  .row-refresh { color: var(--muted); background: none; border: 3px solid transparent;
+    border-radius: 8px; padding: 6px; cursor: pointer; display: inline-flex; }
+  .row-refresh svg { width: 26px; height: 26px; }
   .row-refresh:focus { color: var(--text); border-color: var(--bolt); }
   .row-refresh.spinning { animation: row-refresh-spin 0.8s linear infinite; }
   @keyframes row-refresh-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }

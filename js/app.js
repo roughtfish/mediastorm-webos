@@ -998,7 +998,9 @@
     var rowsHtml = homeData.rows.map(function (row) {
       var refreshId = row.library ? 'row-refresh-' + row.library.id.replace(/[^a-zA-Z0-9]/g, '') : '';
       var refreshBtn = row.library
-        ? '<button class="row-refresh" id="' + refreshId + '" data-focus data-refresh-lib="' + esc(row.library.id) + '" aria-label="Refresh ' + esc(row.title) + '">\u21bb</button>'
+        ? '<button class="row-refresh" id="' + refreshId + '" data-focus data-refresh-lib="' + esc(row.library.id) + '" aria-label="Refresh ' + esc(row.title) + '">' +
+          '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>' +
+          '<path d="M20 4v5h-5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>'
         : '';
       // A small button above a wide row of cards loses out to the row above
       // on pure geometry, so Up from this row is told explicitly where to
