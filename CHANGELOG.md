@@ -2,6 +2,31 @@
 
 What changed in each version of mediastorm for LG webOS, newest first.
 
+## 1.17.0 (2026-11-14)
+
+- Declared the app's required Access Control Group (ACG), which LG now
+  needs for every Luna API call an app makes, optional on webOS TV 26 and
+  mandatory from webOS TV 27. The only such call in the app is launching
+  the TV's own YouTube app as a fallback when a trailer can't play
+  embedded, which needs `application.launcher`; `requiredACG` in
+  appinfo.json now lists it instead of being empty.
+
+## 1.16.3 (2026-11-14)
+
+- Reverted seek preview thumbnails. Tracked the feature all the way through
+  to a real cause: mediastorm's own thumbnail generation calls into its own
+  internal streaming endpoint and gets a 5XX error back, every time, for at
+  least this content. Confirmed entirely on mediastorm's side, so nothing
+  left to fix here; the app is back to how it played before.
+
+## 1.15.0 (2026-11-14)
+
+- Search results now put recent titles first. mediastorm's own ranking
+  doesn't factor in release date, so a near-exact older match could
+  outrank a new release; results are now reordered to float anything from
+  the last couple of years to the top, without otherwise disturbing
+  mediastorm's own ordering.
+
 ## 1.14.2 (2026-10-20)
 
 - The library row's refresh button now uses a proper curled-arrow icon,
