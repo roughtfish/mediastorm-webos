@@ -763,7 +763,7 @@ var Player = (function () {
       var f = $('audio-list').querySelector('.focus');
       if (f) f.scrollIntoView({ block: 'nearest' });
     }
-    function escapeHtml(v) { return String(v).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+    var escapeHtml = Util.esc;   // shared with the rest of the app, rather than a private copy
 
     function openMenu() {
       buildMenu();

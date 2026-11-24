@@ -31,6 +31,19 @@
   var view = document.getElementById('view');
   var toastEl = document.getElementById('toast');
 
+  // ---------- tunables ----------
+  // Every timing/TTL constant used below, gathered in one place so they're
+  // easy to find and adjust together. What each one does is explained where
+  // it's actually used, not here.
+  var AI_ROW_TTL = 6 * 3600 * 1000, AI_ROW_RETRY = 2 * 60 * 1000;
+  var CAL_TTL = 3 * 3600 * 1000, CAL_RETRY = 10 * 60 * 1000;
+  var HOLD_MS = 700, GAP_MS = 250;
+  var RECENT_YEARS = 2;
+  var RESTORE_REFRESH_MS = 1500;
+  var UPDATE_CHECK_INTERVAL_MS = 24 * 3600 * 1000;
+  var TRAILER_SILENCE_MS = 25000, TRAILER_REFOCUS_MS = 400;
+  var SS_IDLE_MS = 90000, SS_HOLD_MS = 9000, SS_FADE_MS = 1800;
+
   // ---------- saved state ----------
   var saved = load();
   function load() { try { return JSON.parse(localStorage.getItem(STORE)) || {}; } catch (e) { return {}; } }
@@ -52,29 +65,41 @@
   function writeHomeCache(data) {
     try { localStorage.setItem(homeCacheKey(), JSON.stringify({ rows: data.rows, at: Date.now() })); } catch (e) { /* full: skip */ }
   }
-  // AI picks row: mediastorm asks its AI provider afresh on every request, so the
-  // app keeps the answer for a few hours rather than asking on every home refresh.
-  // It's fetched behind the home screen, never holding the other rows up.
-  var AI_ROW_TTL = 6 * 3600 * 1000, AI_ROW_RETRY = 2 * 60 * 1000;   // retry soon if a request was dropped
-  var aiFetching = {};
-  function aiCacheKey(id) { return STORE + '-ai-' + id; }
-  function readAiCache(id) {
+
+  // A localStorage cache of { items: [...], at: timestamp }, the shape shared
+  // by the AI-picks row and the calendar below: both are fetched behind the
+  // home screen and kept for a while (ttl) rather than asked for on every
+  // refresh, with a shorter retry if the last fetch came back empty (so a
+  // dropped request or a provider that isn't set up doesn't wait the full
+  // TTL to be tried again). any bypasses the age check entirely, for reading
+  // whatever's cached, however old, so something keeps showing while a fresh
+  // fetch is in flight.
+  function readItemsCache(key, ttl, retryTtl, any) {
     try {
-      var c = JSON.parse(localStorage.getItem(aiCacheKey(id)));
+      var c = JSON.parse(localStorage.getItem(key));
       if (!c || !Array.isArray(c.items)) return null;
-      return Date.now() - c.at < (c.items.length ? AI_ROW_TTL : AI_ROW_RETRY) ? c : null;
+      return any || Date.now() - c.at < (c.items.length ? ttl : retryTtl) ? c : null;
     } catch (e) { return null; }
   }
-  function readAiCacheAny(id) {   // even if out of date, to keep showing something while refreshing
-    try { var c = JSON.parse(localStorage.getItem(aiCacheKey(id))); return c && Array.isArray(c.items) ? c : null; } catch (e) { return null; }
+  function writeItemsCache(key, items) {
+    try { localStorage.setItem(key, JSON.stringify({ items: items, at: Date.now() })); } catch (e) { /* full: skip */ }
   }
+
+  // AI picks row: mediastorm asks its AI provider afresh on every request, so the
+  // app keeps the answer for a few hours (AI_ROW_TTL) rather than asking on every
+  // home refresh. Retries sooner (AI_ROW_RETRY) if a request was dropped. It's
+  // fetched behind the home screen, never holding the other rows up.
+  var aiFetching = {};
+  function aiCacheKey(id) { return STORE + '-ai-' + id; }
+  function readAiCache(id) { return readItemsCache(aiCacheKey(id), AI_ROW_TTL, AI_ROW_RETRY, false); }
+  function readAiCacheAny(id) { return readItemsCache(aiCacheKey(id), AI_ROW_TTL, AI_ROW_RETRY, true); }   // even if out of date, to keep showing something while refreshing
   function fetchAiRow(id) {
     if (aiFetching[id]) return;
     aiFetching[id] = true;
     Api.aiRecommendations(id).then(function (r) {
       var items = ((r && r.items) || []).map(function (t) { return t && t.title ? fromTitle(t.title) : null; })
         .filter(Boolean).slice(0, 30);
-      try { localStorage.setItem(aiCacheKey(id), JSON.stringify({ items: items, at: Date.now() })); } catch (e) { /* full: skip */ }
+      writeItemsCache(aiCacheKey(id), items);
       if (items.length && profile && profile.id === id) {
         homeStale = true;
         // If a refresh is already running it may have missed the new row, so go again shortly after.
@@ -83,21 +108,15 @@
       }
     }, function () {
       // Not set up, dropped, or the AI didn't answer: try again in a couple of minutes, not on every refresh.
-      try { localStorage.setItem(aiCacheKey(id), JSON.stringify({ items: [], at: Date.now() })); } catch (e) { /* full: skip */ }
+      writeItemsCache(aiCacheKey(id), []);
     }).then(function () { aiFetching[id] = false; });
   }
   // New episodes and Coming soon: from mediastorm's calendar (shows on your
   // watchlist or in your history), fetched behind the home screen and kept for
   // three hours.
-  var CAL_TTL = 3 * 3600 * 1000, CAL_RETRY = 10 * 60 * 1000, calFetching = {};
+  var calFetching = {};
   function calKey(id) { return STORE + '-cal-' + id; }
-  function readCal(id, any) {
-    try {
-      var c = JSON.parse(localStorage.getItem(calKey(id)));
-      if (!c || !Array.isArray(c.items)) return null;
-      return any || Date.now() - c.at < (c.items.length ? CAL_TTL : CAL_RETRY) ? c : null;
-    } catch (e) { return null; }
-  }
+  function readCal(id, any) { return readItemsCache(calKey(id), CAL_TTL, CAL_RETRY, any); }
   function fetchCalendar(id) {
     if (calFetching[id]) return;
     calFetching[id] = true;
@@ -105,14 +124,14 @@
       var items = ((r && r.items) || []).filter(function (it) {
         return it && (it.source === 'watchlist' || it.source === 'history') && it.airDate;
       });
-      try { localStorage.setItem(calKey(id), JSON.stringify({ items: items, at: Date.now() })); } catch (e) { /* full */ }
+      writeItemsCache(calKey(id), items);
       if (items.length && profile && profile.id === id) {
         homeStale = true;
         if (homeRefreshing) setTimeout(function () { if (profile && profile.id === id) refreshHomeInBackground(); }, 3000);
         else refreshHomeInBackground();
       }
     }, function () {
-      try { localStorage.setItem(calKey(id), JSON.stringify({ items: [], at: Date.now() })); } catch (e) { /* full */ }
+      writeItemsCache(calKey(id), []);
     }).then(function () { calFetching[id] = false; });
   }
   function localDate(d) {
@@ -193,37 +212,52 @@
     clearTimeout(toastEl._t);
     toastEl._t = setTimeout(function () { toastEl.className = ''; }, ms || 7000);
   }
-  // The full text of a description, in a box over the page. Up and Down scroll
-  // it, and Back or OK closes it.
-  function textBox(title, text) {
-    ignoreHeldOK();   // a still-held or stray OK shouldn't instantly activate Close
+  // Shared scaffolding for the small boxes below (textBox, choiceBox,
+  // confirmBox): captures what had focus and the current Back handler, shows
+  // the box, and gives back a close() that undoes all of that the same way
+  // every time. opts.className adds a class to the box; opts.onClose runs
+  // first, before the box is removed, for a caller with its own cleanup
+  // (textBox's scroll-key listener).
+  function openModal(innerHtml, opts) {
+    opts = opts || {};
     var back = document.activeElement, prevBack = Nav.currentBack ? Nav.currentBack() : null;
     var box = document.createElement('div');
     box.id = 'confirm';
-    box.className = 'textbox';
-    box.innerHTML = '<div class="box"><h2>' + esc(title) + '</h2><div class="textbox-body">' + esc(text) + '</div>' +
-      '<div class="actions"><button class="btn primary" data-focus id="textbox-close">Close</button>' +
-      '<span class="muted textbox-hint">Up and down to scroll</span></div></div>';
+    if (opts.className) box.className = opts.className;
+    box.innerHTML = innerHtml;
     document.body.appendChild(box);
-    var body = box.querySelector('.textbox-body');
-    if (body.scrollHeight <= body.clientHeight + 2) box.querySelector('.textbox-hint').textContent = '';
     Nav.setScope(box);
-    function onKey(e) {
-      if (e.keyCode === 38 || e.keyCode === 40) {
-        e.preventDefault(); e.stopImmediatePropagation();
-        body.scrollTop += (e.keyCode === 40 ? 1 : -1) * Math.round(body.clientHeight * 0.6);
-      }
-    }
-    document.addEventListener('keydown', onKey, true);
     function close() {
-      document.removeEventListener('keydown', onKey, true);
+      if (opts.onClose) opts.onClose();
       if (box.parentNode) box.parentNode.removeChild(box);
       Nav.setScope(view);
       Nav.onBack(prevBack);
       if (back && document.body.contains(back)) Nav.focus(back); else Nav.first();
     }
     Nav.onBack(close);
-    box.querySelector('#textbox-close').addEventListener('click', close);
+    return { box: box, close: close };
+  }
+  // The full text of a description, in a box over the page. Up and Down scroll
+  // it, and Back or OK closes it.
+  function textBox(title, text) {
+    ignoreHeldOK();   // a still-held or stray OK shouldn't instantly activate Close
+    var onKey;
+    var m = openModal(
+      '<div class="box"><h2>' + esc(title) + '</h2><div class="textbox-body">' + esc(text) + '</div>' +
+      '<div class="actions"><button class="btn primary" data-focus id="textbox-close">Close</button>' +
+      '<span class="muted textbox-hint">Up and down to scroll</span></div></div>',
+      { className: 'textbox', onClose: function () { document.removeEventListener('keydown', onKey, true); } });
+    var box = m.box;
+    var body = box.querySelector('.textbox-body');
+    if (body.scrollHeight <= body.clientHeight + 2) box.querySelector('.textbox-hint').textContent = '';
+    onKey = function (e) {
+      if (e.keyCode === 38 || e.keyCode === 40) {
+        e.preventDefault(); e.stopImmediatePropagation();
+        body.scrollTop += (e.keyCode === 40 ? 1 : -1) * Math.round(body.clientHeight * 0.6);
+      }
+    };
+    document.addEventListener('keydown', onKey, true);
+    box.querySelector('#textbox-close').addEventListener('click', m.close);
     Nav.focus(box.querySelector('#textbox-close'));
   }
   // Puts a More button after a description that's been cut short, or removes it
@@ -244,24 +278,13 @@
   // A message box with a few choices; Back closes it. choices: [{ label, fn }],
   // the first one selected. A Close choice is added at the end.
   function choiceBox(title, text, choices) {
-    var back = document.activeElement, prevBack = Nav.currentBack ? Nav.currentBack() : null;
-    var box = document.createElement('div');
-    box.id = 'confirm';
-    box.innerHTML = '<div class="box"><h2>' + esc(title) + '</h2><p>' + esc(text) + '</p><div class="actions">' +
+    var m = openModal('<div class="box"><h2>' + esc(title) + '</h2><p>' + esc(text) + '</p><div class="actions">' +
       choices.map(function (c, i) { return '<button class="btn' + (i === 0 ? ' primary' : '') + '" data-focus data-c="' + i + '">' + esc(c.label) + '</button>'; }).join('') +
-      '<button class="btn" data-focus id="confirm-no">Close</button></div></div>';
-    document.body.appendChild(box);
-    Nav.setScope(box);
-    function close() {
-      if (box.parentNode) box.parentNode.removeChild(box);
-      Nav.setScope(view);
-      Nav.onBack(prevBack);
-      if (back && document.body.contains(back)) Nav.focus(back); else Nav.first();
-    }
-    Nav.onBack(close);
-    box.querySelector('#confirm-no').addEventListener('click', close);
+      '<button class="btn" data-focus id="confirm-no">Close</button></div></div>');
+    var box = m.box;
+    box.querySelector('#confirm-no').addEventListener('click', m.close);
     box.querySelectorAll('[data-c]').forEach(function (b) {
-      b.addEventListener('click', function () { close(); choices[+b.getAttribute('data-c')].fn(); });
+      b.addEventListener('click', function () { m.close(); choices[+b.getAttribute('data-c')].fn(); });
     });
     Nav.focus(box.querySelector('[data-c]') || box.querySelector('#confirm-no'));
   }
@@ -287,23 +310,12 @@
 
   // A small yes/no box over the current screen. Back or Cancel closes it.
   function confirmBox(title, text, yesLabel, onYes) {
-    var back = document.activeElement, prevBack = Nav.currentBack ? Nav.currentBack() : null;
-    var box = document.createElement('div');
-    box.id = 'confirm';
-    box.innerHTML = '<div class="box"><h2>' + esc(title) + '</h2><p>' + esc(text) + '</p><div class="actions">' +
+    var m = openModal('<div class="box"><h2>' + esc(title) + '</h2><p>' + esc(text) + '</p><div class="actions">' +
       '<button class="btn primary" data-focus id="confirm-yes">' + esc(yesLabel) + '</button>' +
-      '<button class="btn" data-focus id="confirm-no">Cancel</button></div></div>';
-    document.body.appendChild(box);
-    Nav.setScope(box);
-    function close() {
-      if (box.parentNode) box.parentNode.removeChild(box);
-      Nav.setScope(view);
-      Nav.onBack(prevBack);
-      if (back && document.body.contains(back)) Nav.focus(back); else Nav.first();
-    }
-    Nav.onBack(close);
-    box.querySelector('#confirm-no').addEventListener('click', close);
-    box.querySelector('#confirm-yes').addEventListener('click', function () { close(); onYes(); });
+      '<button class="btn" data-focus id="confirm-no">Cancel</button></div></div>');
+    var box = m.box;
+    box.querySelector('#confirm-no').addEventListener('click', m.close);
+    box.querySelector('#confirm-yes').addEventListener('click', function () { m.close(); onYes(); });
     Nav.focus(box.querySelector('#confirm-yes'));
   }
 
@@ -425,7 +437,6 @@
   // TVs report a held button differently: some repeat the key-down, some send a
   // stream of down/up pairs. So a release only counts as a short press if no new
   // key-down follows within a moment; key-downs that keep coming for 0.7 s are a hold.
-  var HOLD_MS = 700, GAP_MS = 250;
   var hold = null, homeItems = [];   // { card, start, holdTimer, gapTimer }
   // After the box opens, OK presses from the same hold are ignored until the
   // button has been let go, so a held button can't press Remove by itself.
@@ -550,7 +561,6 @@
   // something new that just hasn't had time to accumulate votes. A series
   // still Continuing or Upcoming counts as recent regardless of when it
   // first aired, so a long-running show isn't mistaken for an old one.
-  var RECENT_YEARS = 2;
   function isRecentTitle(item) {
     if (item.kind === 'series' && (item.lifecycle === 'Continuing' || item.lifecycle === 'Upcoming')) return true;
     var cutoff = new Date(); cutoff.setFullYear(cutoff.getFullYear() - RECENT_YEARS);
@@ -751,7 +761,7 @@
   function checkUpdates() {
     var st = {};
     try { st = JSON.parse(localStorage.getItem(UPDATE_KEY)) || {}; } catch (e) { st = {}; }
-    if (st.at && Date.now() - st.at < 24 * 3600 * 1000) return;   // once a day
+    if (st.at && Date.now() - st.at < UPDATE_CHECK_INTERVAL_MS) return;   // once a day
     st.at = Date.now();
     var notes = [];
     var server = Api.updateStatus().then(function (u) {
@@ -1165,7 +1175,6 @@
   // moment later, instead of the whole page being rebuilt while the TV is
   // still releasing the video.
   var livePage = null;          // { item, node, restore(message, playedEpisode, from) }
-  var RESTORE_REFRESH_MS = 1500;
   function setPageMessage(message) {
     var body = view.querySelector('.title-body');
     if (!body) return;
@@ -1488,9 +1497,9 @@
     // nothing's been heard for a while.
     var watchdog = setInterval(function () {
       if (playing) { clearInterval(watchdog); return; }
-      if (Date.now() - lastHeard > 25000) { clearInterval(watchdog); fallback(); }
+      if (Date.now() - lastHeard > TRAILER_SILENCE_MS) { clearInterval(watchdog); fallback(); }
     }, 1000);
-    var refocus = setInterval(function () { if (document.activeElement !== keep) keep.focus(); }, 400);   // keep the remote's keys here
+    var refocus = setInterval(function () { if (document.activeElement !== keep) keep.focus(); }, TRAILER_REFOCUS_MS);   // keep the remote's keys here
     function onKey(e) {
       var k = e.keyCode;
       e.preventDefault(); e.stopImmediatePropagation();
@@ -2403,7 +2412,6 @@
   // slideshow takes over, panning slowly and crossfading, the way Apple TV's
   // own screensaver does — nothing functional, just a bit of delight. Any
   // key press ends it and returns to the home screen exactly as it was.
-  var SS_IDLE_MS = 90000, SS_HOLD_MS = 9000, SS_FADE_MS = 1800;
   var ssTimer = null, ssOn = false;
   function ssReset() {
     clearTimeout(ssTimer);
