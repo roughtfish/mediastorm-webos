@@ -58,48 +58,59 @@
   var homeData = null;        // { rows: [...] } cached between screens
   var homeStale = false;      // shown from cache: refresh in the background
   var homeRefreshing = false;
-  function homeCacheKey() { return STORE + '-home-' + (profile && profile.id); }
-  function readHomeCache() {
-    try { var c = JSON.parse(localStorage.getItem(homeCacheKey())); return c && c.rows ? c : null; } catch (e) { return null; }
-  }
-  function writeHomeCache(data) {
-    try { localStorage.setItem(homeCacheKey(), JSON.stringify({ rows: data.rows, at: Date.now() })); } catch (e) { /* full: skip */ }
-  }
-
-  // A localStorage cache of { items: [...], at: timestamp }, the shape shared
-  // by the AI-picks row and the calendar below: both are fetched behind the
-  // home screen and kept for a while (ttl) rather than asked for on every
-  // refresh, with a shorter retry if the last fetch came back empty (so a
-  // dropped request or a provider that isn't set up doesn't wait the full
-  // TTL to be tried again). any bypasses the age check entirely, for reading
-  // whatever's cached, however old, so something keeps showing while a fresh
-  // fetch is in flight.
-  function readItemsCache(key, ttl, retryTtl, any) {
-    try {
-      var c = JSON.parse(localStorage.getItem(key));
-      if (!c || !Array.isArray(c.items)) return null;
-      return any || Date.now() - c.at < (c.items.length ? ttl : retryTtl) ? c : null;
-    } catch (e) { return null; }
-  }
-  function writeItemsCache(key, items) {
-    try { localStorage.setItem(key, JSON.stringify({ items: items, at: Date.now() })); } catch (e) { /* full: skip */ }
-  }
+  // All of the app's localStorage caching in one place: the home screen's
+  // last-seen rows, and the shared { items, at } shape used for the AI-picks
+  // and calendar rows (fetched behind the home screen, kept for a while
+  // rather than asked for on every refresh, with a shorter retry if the last
+  // fetch came back empty, and an "any" read that bypasses the age check
+  // entirely so something keeps showing while a fresh fetch is in flight).
+  var Cache = (function () {
+    function homeKey() { return STORE + '-home-' + (profile && profile.id); }
+    function readHome() {
+      try { var c = JSON.parse(localStorage.getItem(homeKey())); return c && c.rows ? c : null; } catch (e) { return null; }
+    }
+    function writeHome(data) {
+      try { localStorage.setItem(homeKey(), JSON.stringify({ rows: data.rows, at: Date.now() })); } catch (e) { /* full: skip */ }
+    }
+    function hasHomeFor(id) {
+      try { return Boolean(localStorage.getItem(STORE + '-home-' + id)); } catch (e) { return false; }
+    }
+    function readItems(key, ttl, retryTtl, any) {
+      try {
+        var c = JSON.parse(localStorage.getItem(key));
+        if (!c || !Array.isArray(c.items)) return null;
+        return any || Date.now() - c.at < (c.items.length ? ttl : retryTtl) ? c : null;
+      } catch (e) { return null; }
+    }
+    function writeItems(key, items) {
+      try { localStorage.setItem(key, JSON.stringify({ items: items, at: Date.now() })); } catch (e) { /* full: skip */ }
+    }
+    function aiKey(id) { return STORE + '-ai-' + id; }
+    function readAi(id) { return readItems(aiKey(id), AI_ROW_TTL, AI_ROW_RETRY, false); }
+    function readAiAny(id) { return readItems(aiKey(id), AI_ROW_TTL, AI_ROW_RETRY, true); }   // even if out of date, to keep showing something while refreshing
+    function writeAi(id, items) { writeItems(aiKey(id), items); }
+    function calKey(id) { return STORE + '-cal-' + id; }
+    function readCal(id, any) { return readItems(calKey(id), CAL_TTL, CAL_RETRY, any); }
+    function writeCal(id, items) { writeItems(calKey(id), items); }
+    return {
+      readHome: readHome, writeHome: writeHome, hasHomeFor: hasHomeFor,
+      readAi: readAi, readAiAny: readAiAny, writeAi: writeAi, aiKey: aiKey,
+      readCal: readCal, writeCal: writeCal, calKey: calKey
+    };
+  })();
 
   // AI picks row: mediastorm asks its AI provider afresh on every request, so the
   // app keeps the answer for a few hours (AI_ROW_TTL) rather than asking on every
   // home refresh. Retries sooner (AI_ROW_RETRY) if a request was dropped. It's
   // fetched behind the home screen, never holding the other rows up.
   var aiFetching = {};
-  function aiCacheKey(id) { return STORE + '-ai-' + id; }
-  function readAiCache(id) { return readItemsCache(aiCacheKey(id), AI_ROW_TTL, AI_ROW_RETRY, false); }
-  function readAiCacheAny(id) { return readItemsCache(aiCacheKey(id), AI_ROW_TTL, AI_ROW_RETRY, true); }   // even if out of date, to keep showing something while refreshing
   function fetchAiRow(id) {
     if (aiFetching[id]) return;
     aiFetching[id] = true;
     Api.aiRecommendations(id).then(function (r) {
       var items = ((r && r.items) || []).map(function (t) { return t && t.title ? fromTitle(t.title) : null; })
         .filter(Boolean).slice(0, 30);
-      writeItemsCache(aiCacheKey(id), items);
+      Cache.writeAi(id, items);
       if (items.length && profile && profile.id === id) {
         homeStale = true;
         // If a refresh is already running it may have missed the new row, so go again shortly after.
@@ -108,15 +119,13 @@
       }
     }, function () {
       // Not set up, dropped, or the AI didn't answer: try again in a couple of minutes, not on every refresh.
-      writeItemsCache(aiCacheKey(id), []);
+      Cache.writeAi(id, []);
     }).then(function () { aiFetching[id] = false; });
   }
   // New episodes and Coming soon: from mediastorm's calendar (shows on your
   // watchlist or in your history), fetched behind the home screen and kept for
   // three hours.
   var calFetching = {};
-  function calKey(id) { return STORE + '-cal-' + id; }
-  function readCal(id, any) { return readItemsCache(calKey(id), CAL_TTL, CAL_RETRY, any); }
   function fetchCalendar(id) {
     if (calFetching[id]) return;
     calFetching[id] = true;
@@ -124,14 +133,14 @@
       var items = ((r && r.items) || []).filter(function (it) {
         return it && (it.source === 'watchlist' || it.source === 'history') && it.airDate;
       });
-      writeItemsCache(calKey(id), items);
+      Cache.writeCal(id, items);
       if (items.length && profile && profile.id === id) {
         homeStale = true;
         if (homeRefreshing) setTimeout(function () { if (profile && profile.id === id) refreshHomeInBackground(); }, 3000);
         else refreshHomeInBackground();
       }
     }, function () {
-      writeItemsCache(calKey(id), []);
+      Cache.writeCal(id, []);
     }).then(function () { calFetching[id] = false; });
   }
   function localDate(d) {
@@ -164,7 +173,7 @@
   // while they're in Continue watching, so a show you've removed from there
   // (or dropped long ago) stops appearing.
   function calendarRows(id, following) {
-    var cal = readCal(id, true);
+    var cal = Cache.readCal(id, true);
     if (!cal || !cal.items.length) return [];
     var follow = {};
     (following || []).forEach(function (f) {
@@ -199,67 +208,87 @@
 
   // ---------- helpers ----------
   var esc = Util.esc;
-  // A card's fallback text when there's no image: starts from the title's
-  // own beginning and trails off with an ellipsis if it's too long for the
-  // card, rather than a block simply centred and clipped, which for a very
-  // long title cuts off both the start and the end with no indication.
-  function fallbackSpan(name, extra) {
-    return '<span class="card-fallback"><b>' + esc(name) + (extra || '') + '</b></span>';
-  }
   function toast(text, kind, ms) {
     toastEl.textContent = text;
     toastEl.className = 'on ' + (kind || '');
     clearTimeout(toastEl._t);
     toastEl._t = setTimeout(function () { toastEl.className = ''; }, ms || 7000);
   }
-  // Shared scaffolding for the small boxes below (textBox, choiceBox,
-  // confirmBox): captures what had focus and the current Back handler, shows
-  // the box, and gives back a close() that undoes all of that the same way
-  // every time. opts.className adds a class to the box; opts.onClose runs
-  // first, before the box is removed, for a caller with its own cleanup
-  // (textBox's scroll-key listener).
-  function openModal(innerHtml, opts) {
-    opts = opts || {};
-    var back = document.activeElement, prevBack = Nav.currentBack ? Nav.currentBack() : null;
-    var box = document.createElement('div');
-    box.id = 'confirm';
-    if (opts.className) box.className = opts.className;
-    box.innerHTML = innerHtml;
-    document.body.appendChild(box);
-    Nav.setScope(box);
-    function close() {
-      if (opts.onClose) opts.onClose();
-      if (box.parentNode) box.parentNode.removeChild(box);
-      Nav.setScope(view);
-      Nav.onBack(prevBack);
-      if (back && document.body.contains(back)) Nav.focus(back); else Nav.first();
-    }
-    Nav.onBack(close);
-    return { box: box, close: close };
-  }
-  // The full text of a description, in a box over the page. Up and Down scroll
-  // it, and Back or OK closes it.
-  function textBox(title, text) {
-    ignoreHeldOK();   // a still-held or stray OK shouldn't instantly activate Close
-    var onKey;
-    var m = openModal(
-      '<div class="box"><h2>' + esc(title) + '</h2><div class="textbox-body">' + esc(text) + '</div>' +
-      '<div class="actions"><button class="btn primary" data-focus id="textbox-close">Close</button>' +
-      '<span class="muted textbox-hint">Up and down to scroll</span></div></div>',
-      { className: 'textbox', onClose: function () { document.removeEventListener('keydown', onKey, true); } });
-    var box = m.box;
-    var body = box.querySelector('.textbox-body');
-    if (body.scrollHeight <= body.clientHeight + 2) box.querySelector('.textbox-hint').textContent = '';
-    onKey = function (e) {
-      if (e.keyCode === 38 || e.keyCode === 40) {
-        e.preventDefault(); e.stopImmediatePropagation();
-        body.scrollTop += (e.keyCode === 40 ? 1 : -1) * Math.round(body.clientHeight * 0.6);
+  // The small boxes shown over the current screen: a scrollable block of
+  // text, a set of choices, or a yes/no prompt. All three share openModal,
+  // which captures what had focus and the current Back handler, shows the
+  // box, and gives back a close() that undoes all of that the same way every
+  // time (opts.className adds a class to the box; opts.onClose runs first,
+  // before the box is removed, for a caller with its own cleanup — textBox's
+  // scroll-key listener).
+  var Modal = (function () {
+    function openModal(innerHtml, opts) {
+      opts = opts || {};
+      var back = document.activeElement, prevBack = Nav.currentBack ? Nav.currentBack() : null;
+      var box = document.createElement('div');
+      box.id = 'confirm';
+      if (opts.className) box.className = opts.className;
+      box.innerHTML = innerHtml;
+      document.body.appendChild(box);
+      Nav.setScope(box);
+      function close() {
+        if (opts.onClose) opts.onClose();
+        if (box.parentNode) box.parentNode.removeChild(box);
+        Nav.setScope(view);
+        Nav.onBack(prevBack);
+        if (back && document.body.contains(back)) Nav.focus(back); else Nav.first();
       }
-    };
-    document.addEventListener('keydown', onKey, true);
-    box.querySelector('#textbox-close').addEventListener('click', m.close);
-    Nav.focus(box.querySelector('#textbox-close'));
-  }
+      Nav.onBack(close);
+      return { box: box, close: close };
+    }
+    // The full text of a description, in a box over the page. Up and Down scroll
+    // it, and Back or OK closes it.
+    function textBox(title, text) {
+      ignoreHeldOK();   // a still-held or stray OK shouldn't instantly activate Close
+      var onKey;
+      var m = openModal(
+        '<div class="box"><h2>' + esc(title) + '</h2><div class="textbox-body">' + esc(text) + '</div>' +
+        '<div class="actions"><button class="btn primary" data-focus id="textbox-close">Close</button>' +
+        '<span class="muted textbox-hint">Up and down to scroll</span></div></div>',
+        { className: 'textbox', onClose: function () { document.removeEventListener('keydown', onKey, true); } });
+      var box = m.box;
+      var body = box.querySelector('.textbox-body');
+      if (body.scrollHeight <= body.clientHeight + 2) box.querySelector('.textbox-hint').textContent = '';
+      onKey = function (e) {
+        if (e.keyCode === 38 || e.keyCode === 40) {
+          e.preventDefault(); e.stopImmediatePropagation();
+          body.scrollTop += (e.keyCode === 40 ? 1 : -1) * Math.round(body.clientHeight * 0.6);
+        }
+      };
+      document.addEventListener('keydown', onKey, true);
+      box.querySelector('#textbox-close').addEventListener('click', m.close);
+      Nav.focus(box.querySelector('#textbox-close'));
+    }
+    // A message box with a few choices; Back closes it. choices: [{ label, fn }],
+    // the first one selected. A Close choice is added at the end.
+    function choiceBox(title, text, choices) {
+      var m = openModal('<div class="box"><h2>' + esc(title) + '</h2><p>' + esc(text) + '</p><div class="actions">' +
+        choices.map(function (c, i) { return '<button class="btn' + (i === 0 ? ' primary' : '') + '" data-focus data-c="' + i + '">' + esc(c.label) + '</button>'; }).join('') +
+        '<button class="btn" data-focus id="confirm-no">Close</button></div></div>');
+      var box = m.box;
+      box.querySelector('#confirm-no').addEventListener('click', m.close);
+      box.querySelectorAll('[data-c]').forEach(function (b) {
+        b.addEventListener('click', function () { m.close(); choices[+b.getAttribute('data-c')].fn(); });
+      });
+      Nav.focus(box.querySelector('[data-c]') || box.querySelector('#confirm-no'));
+    }
+    // A small yes/no box over the current screen. Back or Cancel closes it.
+    function confirmBox(title, text, yesLabel, onYes) {
+      var m = openModal('<div class="box"><h2>' + esc(title) + '</h2><p>' + esc(text) + '</p><div class="actions">' +
+        '<button class="btn primary" data-focus id="confirm-yes">' + esc(yesLabel) + '</button>' +
+        '<button class="btn" data-focus id="confirm-no">Cancel</button></div></div>');
+      var box = m.box;
+      box.querySelector('#confirm-no').addEventListener('click', m.close);
+      box.querySelector('#confirm-yes').addEventListener('click', function () { m.close(); onYes(); });
+      Nav.focus(box.querySelector('#confirm-yes'));
+    }
+    return { text: textBox, choice: choiceBox, confirm: confirmBox };
+  })();
   // Puts a More button after a description that's been cut short, or removes it
   // if the text now fits. getText gives the full text when it's pressed.
   function moreTag(el, title, getText) {
@@ -272,21 +301,7 @@
       tag.className = 'more-tag'; tag.setAttribute('data-focus', ''); tag.textContent = 'More';
       el.parentNode.insertBefore(tag, el.nextSibling);
     }
-    tag.onclick = function () { textBox(title, getText()); };
-  }
-
-  // A message box with a few choices; Back closes it. choices: [{ label, fn }],
-  // the first one selected. A Close choice is added at the end.
-  function choiceBox(title, text, choices) {
-    var m = openModal('<div class="box"><h2>' + esc(title) + '</h2><p>' + esc(text) + '</p><div class="actions">' +
-      choices.map(function (c, i) { return '<button class="btn' + (i === 0 ? ' primary' : '') + '" data-focus data-c="' + i + '">' + esc(c.label) + '</button>'; }).join('') +
-      '<button class="btn" data-focus id="confirm-no">Close</button></div></div>');
-    var box = m.box;
-    box.querySelector('#confirm-no').addEventListener('click', m.close);
-    box.querySelectorAll('[data-c]').forEach(function (b) {
-      b.addEventListener('click', function () { m.close(); choices[+b.getAttribute('data-c')].fn(); });
-    });
-    Nav.focus(box.querySelector('[data-c]') || box.querySelector('#confirm-no'));
+    tag.onclick = function () { Modal.text(title, getText()); };
   }
 
   // When something won't play: say so in a box over the page, with a way to
@@ -299,24 +314,13 @@
     if (special && /no results|no .*releases?|couldn't find/i.test(message || '')) {
       text = 'mediastorm searched for it as S0 E' + ep.episode + ' and found nothing. Specials are often released under their name or air date instead, so a search by those may find it.';
     }
-    choiceBox('Couldn\'t play ' + label, text, [{
+    Modal.choice('Couldn\'t play ' + label, text, [{
       label: special ? 'Search by name and date' : 'Choose release',
       fn: function () {
         var keep = titleReturn;
         renderPicker(item, ep, function () { titleReturn = keep; renderTitle(item, null, ep); });
       }
     }]);
-  }
-
-  // A small yes/no box over the current screen. Back or Cancel closes it.
-  function confirmBox(title, text, yesLabel, onYes) {
-    var m = openModal('<div class="box"><h2>' + esc(title) + '</h2><p>' + esc(text) + '</p><div class="actions">' +
-      '<button class="btn primary" data-focus id="confirm-yes">' + esc(yesLabel) + '</button>' +
-      '<button class="btn" data-focus id="confirm-no">Cancel</button></div></div>');
-    var box = m.box;
-    box.querySelector('#confirm-no').addEventListener('click', m.close);
-    box.querySelector('#confirm-yes').addEventListener('click', function () { m.close(); onYes(); });
-    Nav.focus(box.querySelector('#confirm-yes'));
   }
 
   // Continue watching: removing a title asks mediastorm to hide it from the row
@@ -326,7 +330,7 @@
     return !!(row && row.items.some(function (i) { return i.titleId === item.titleId; }));
   }
   function askRemoveContinue(item, after) {
-    confirmBox('Remove from Continue watching?', item.name + ' will no longer show in the row. Watching it again brings it back.',
+    Modal.confirm('Remove from Continue watching?', item.name + ' will no longer show in the row. Watching it again brings it back.',
       'Remove', async function () {
         try { await Api.hideContinue(profile.id, item.titleId); }
         catch (e) { toast('Couldn\'t remove it: ' + e.message, 'warn'); return; }
@@ -334,7 +338,7 @@
           homeData.rows = homeData.rows.map(function (r) {
             return r.wide ? Object.assign({}, r, { items: r.items.filter(function (i) { return i.titleId !== item.titleId; }) }) : r;
           }).filter(function (r) { return r.items.length; });
-          writeHomeCache(homeData);
+          Cache.writeHome(homeData);
         }
         toast('Removed ' + item.name + ' from Continue watching.');
         if (after) after();
@@ -638,20 +642,6 @@
     }
     return { title: lib.name, items: items, library: lib };
   }
-  // A designed stand-in for a library item with no real thumbnail: a muted
-  // colour (steady per title, so the same file always looks the same) with a
-  // small play glyph, and the title along the bottom like a real poster.
-  function strHue(str) {
-    var h = 0;
-    for (var i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
-    return h % 360;
-  }
-  function mediaFallback(item, attrs) {
-    return '<button class="card poster media-fallback" style="--hue:' + strHue(item.name || '') + '" data-focus ' + attrs + '>' +
-      '<svg class="media-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.4"/>' +
-      '<path d="M10 8.3v7.4l6.3-3.7z" fill="currentColor"/></svg>' +
-      '<span class="card-label">' + esc(item.name) + '</span></button>';
-  }
   // Fetches a library item's real stream path and plays it directly, with no
   // release search: the file is already known. Reuses the normal player (its
   // seeking, subtitles, audio menu, resume and progress reporting), just with
@@ -734,7 +724,7 @@
     ] }
   ];
   function showWhatsNew() {
-    textBox('What\'s new', WHATS_NEW.map(function (r) {
+    Modal.text('What\'s new', WHATS_NEW.map(function (r) {
       return r.v + '\n' + r.items.join('\n');
     }).join('\n\n'));
   }
@@ -877,7 +867,7 @@
     document.getElementById('signout').addEventListener('click', function () {
       Api.logout().catch(function () {});
       (saved.profiles || []).forEach(function (p) {
-        try { localStorage.removeItem(STORE + '-home-' + p.id); localStorage.removeItem(aiCacheKey(p.id)); localStorage.removeItem(calKey(p.id)); } catch (e) { /* ignore */ }
+        try { localStorage.removeItem(STORE + '-home-' + p.id); localStorage.removeItem(Cache.aiKey(p.id)); localStorage.removeItem(Cache.calKey(p.id)); } catch (e) { /* ignore */ }
       });
       saved.token = ''; saved.profileId = ''; saved.profiles = []; save();
       detailsCache = {};
@@ -927,11 +917,11 @@
     }
     var rows = [];
     if (Array.isArray(results[0]) && results[0].length) rows.push({ title: 'Continue watching', wide: true, items: results[0].map(fromContinue) });
-    if (!readCal(uid)) fetchCalendar(uid);
+    if (!Cache.readCal(uid)) fetchCalendar(uid);
     var cal = calendarRows(uid, Array.isArray(results[0]) ? results[0].map(fromContinue) : []);
     if (cal[0] && cal[0].title === 'New episodes') rows.push(cal.shift());
-    if (!readAiCache(uid)) fetchAiRow(uid);
-    var ai = readAiCacheAny(uid);
+    if (!Cache.readAi(uid)) fetchAiRow(uid);
+    var ai = Cache.readAiAny(uid);
     if (ai && ai.items.length) {
       // Split into films and series from the same answer; if either side is
       // too thin to make a proper row, keep them together.
@@ -976,7 +966,7 @@
       homeStale = false;
       var changed = JSON.stringify(fresh.rows) !== JSON.stringify(homeData && homeData.rows);
       homeData = fresh;
-      writeHomeCache(fresh);
+      Cache.writeHome(fresh);
       // Redraw only if something changed and the home screen is still showing;
       // focus returns to the same card. Not while something like What's new
       // is open on top of it, though: redrawing home rebuilds its own back
@@ -996,14 +986,14 @@
     ssReset();
     // Show what's saved straight away and refresh behind it.
     if (!homeData && !refresh) {
-      var cached = readHomeCache();
+      var cached = Cache.readHome();
       if (cached) { homeData = { rows: cached.rows, failed: 0 }; homeStale = true; }
     }
     if (homeData && homeStale && !refresh) refreshHomeInBackground();
-    else if (homeData && !refresh && profile && !readAiCache(profile.id)) fetchAiRow(profile.id);   // coming back home: retry the AI row if due
+    else if (homeData && !refresh && profile && !Cache.readAi(profile.id)) fetchAiRow(profile.id);   // coming back home: retry the AI row if due
     if (!homeData || refresh) {
       show('<div class="loading">Loading ' + esc(profile.name) + '\'s home</div>', 'screen-home');
-      try { homeData = await loadHome(); homeStale = false; writeHomeCache(homeData); }
+      try { homeData = await loadHome(); homeStale = false; Cache.writeHome(homeData); }
       catch (e) {
         if (e.status === 401) { saved.token = ''; save(); renderSetup('Your session has ended. Sign in again.'); return; }
         show('<div class="center-panel"><h1>Couldn\'t load your home screen</h1><p class="lede">' + esc(e.message) + '</p>' +
@@ -1022,15 +1012,15 @@
       var i = all.push(item) - 1;
       if (item.kind === 'seeAllLibrary') return '<button class="card poster see-all" data-focus data-i="' + i + '" data-key="' + esc(item.key) + '">See all \u2192</button>';
       var img = wide ? (item.backdrop || item.poster) : (item.poster || item.backdrop);
-      if (item.isLibraryItem && !img) return mediaFallback(item, 'data-i="' + i + '" data-key="' + esc(item.key) + '"' + wkAttr(item));
+      if (item.isLibraryItem && !img) return Cards.mediaFallback(item, 'data-i="' + i + '" data-key="' + esc(item.key) + '"' + Cards.wkAttr(item));
       var bar = wide && item.percent > 1 ? '<i class="bar"><b style="width:' + Math.min(100, item.percent) + '%"></b></i>' : '';
       var label = wide
         ? '<span class="card-label">' + esc(item.name) + (item.next ? '<em>S' + item.next.season + ' E' + item.next.episode +
             (item.note ? ' · ' + esc(item.note) : '') + '</em>' : (item.note ? '<em>' + esc(item.note) + '</em>' : '')) + '</span>'
         : '';
-      return '<button class="card ' + (wide ? 'wide' : 'poster') + '" data-focus data-i="' + i + '" data-key="' + esc(item.key) + '"' + (wide ? '' : wkAttr(item)) + '>' +
+      return '<button class="card ' + (wide ? 'wide' : 'poster') + '" data-focus data-i="' + i + '" data-key="' + esc(item.key) + '"' + (wide ? '' : Cards.wkAttr(item)) + '>' +
         (img ? imgTag(img, wide ? 'w780' : 'w342', true) : '') +
-        fallbackSpan(item.name) + label + bar + '</button>';
+        Cards.fallback(item.name) + label + bar + '</button>';
     }
     var rowsHtml = homeData.rows.map(function (row) {
       var refreshId = row.library ? 'row-refresh-' + row.library.id.replace(/[^a-zA-Z0-9]/g, '') : '';
@@ -1126,7 +1116,7 @@
               else if (it.kind === 'seeAllLibrary') renderLibraryPage(it.library);
             });
           });
-          paintWatchedPosters(track);
+          Cards.paintWatched(track);
           toast(row.title + ' refreshed.');
         }, function () {
           btn.classList.remove('spinning');
@@ -1137,7 +1127,7 @@
 
     var again = lastHomeKey && view.querySelector('.card[data-key="' + (window.CSS && CSS.escape ? CSS.escape(lastHomeKey) : lastHomeKey) + '"]');
     if (again) Nav.focus(again); else Nav.focus(view.querySelector('#rows .card') || view.querySelector('[data-focus]'));
-    paintWatchedPosters(view.querySelector('#rows'));
+    Cards.paintWatched(view.querySelector('#rows'));
   }
 
   // ---------- title pages ----------
@@ -1208,12 +1198,6 @@
       .sort(function (a, b) { return (a.order || 0) - (b.order || 0); }).slice(0, 20)
       .map(function (c) { return { id: c.id, name: c.name, character: c.character || '', photo: c.profileUrl || '' }; });
   }
-  function personCard(p, i) {
-    return '<button class="card person" data-focus data-p="' + i + '">' +
-      (p.photo ? imgTag(p.photo, 'w185', true) : '') +
-      fallbackSpan(p.name) +
-      '<span class="card-label">' + esc(p.name) + (p.character ? '<em>' + esc(p.character) + '</em>' : '') + '</span></button>';
-  }
   // ---------- a show's IDs ----------
   // mediastorm can file a show's history under its TVDB or TMDB ID depending on
   // where it was played from, and doesn't always link the two. So the app
@@ -1237,63 +1221,104 @@
     return first;
   }
 
-  // ---------- watched films ----------
-  // A ✓ on film posters you've watched, from mediastorm's watched list
-  // (fetched once and kept for a couple of minutes).
-  var watchedSet = null, watchedAt = 0, watchedP = null;
-  function filmKeys(item) {
-    if (!item || item.kind !== 'movie') return '';
-    var k = [];
-    if (item.titleId) k.push('movie:' + item.titleId);
-    if (item.tmdb) k.push('movie:tmdb:movie:' + item.tmdb, 'movie:tmdb:' + item.tmdb);
-    if (item.imdb) k.push('movie:imdb:' + item.imdb, 'movie:' + item.imdb);
-    if (item.tvdb) k.push('movie:tvdb:movie:' + item.tvdb);
-    var m = String(item.titleId || '').match(/^tmdb:movie:(\d+)$/);
-    if (m && !item.tmdb) k.push('movie:tmdb:' + m[1]);
-    return k.join('|').toLowerCase();
-  }
-  function watchedKeysNow() {
-    if (watchedSet && Date.now() - watchedAt < 120000) return Promise.resolve(watchedSet);
-    if (watchedP) return watchedP;
-    watchedP = Api.watchedKeys(profile.id).then(function (r) {
-      var set = {};
-      if (r && Array.isArray(r.watched)) r.watched.forEach(function (k) { set[String(k).toLowerCase()] = true; });
-      else if (Array.isArray(r)) r.forEach(function (it) {   // older servers: the full list
-        if (!it || !it.watched || it.mediaType !== 'movie') return;
-        set[('movie:' + it.itemId).toLowerCase()] = true;
-        var x = it.externalIds || {};
-        if (x.tmdb) set['movie:tmdb:movie:' + x.tmdb] = true;
-        if (x.imdb) set[('movie:imdb:' + x.imdb).toLowerCase()] = true;
+  // ---------- cards ----------
+  // Everything about building a card's markup and keeping its watched-state
+  // tick up to date, shared by the home, title-detail, browse-grid, episode
+  // and search screens.
+  var Cards = (function () {
+    // A card's fallback text when there's no image: starts from the title's
+    // own beginning and trails off with an ellipsis if it's too long for the
+    // card, rather than a block simply centred and clipped, which for a very
+    // long title cuts off both the start and the end with no indication.
+    function fallbackSpan(name, extra) {
+      return '<span class="card-fallback"><b>' + esc(name) + (extra || '') + '</b></span>';
+    }
+    // A designed stand-in for a library item with no real thumbnail: a muted
+    // colour (steady per title, so the same file always looks the same) with
+    // a small play glyph, and the title along the bottom like a real poster.
+    function strHue(str) {
+      var h = 0;
+      for (var i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
+      return h % 360;
+    }
+    function mediaFallback(item, attrs) {
+      return '<button class="card poster media-fallback" style="--hue:' + strHue(item.name || '') + '" data-focus ' + attrs + '>' +
+        '<svg class="media-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.4"/>' +
+        '<path d="M10 8.3v7.4l6.3-3.7z" fill="currentColor"/></svg>' +
+        '<span class="card-label">' + esc(item.name) + '</span></button>';
+    }
+    function personCard(p, i) {
+      return '<button class="card person" data-focus data-p="' + i + '">' +
+        (p.photo ? imgTag(p.photo, 'w185', true) : '') +
+        fallbackSpan(p.name) +
+        '<span class="card-label">' + esc(p.name) + (p.character ? '<em>' + esc(p.character) + '</em>' : '') + '</span></button>';
+    }
+    // A ✓ on film posters you've watched, from mediastorm's watched list
+    // (fetched once and kept for a couple of minutes).
+    var watchedSet = null, watchedAt = 0, watchedP = null;
+    function filmKeys(item) {
+      if (!item || item.kind !== 'movie') return '';
+      var k = [];
+      if (item.titleId) k.push('movie:' + item.titleId);
+      if (item.tmdb) k.push('movie:tmdb:movie:' + item.tmdb, 'movie:tmdb:' + item.tmdb);
+      if (item.imdb) k.push('movie:imdb:' + item.imdb, 'movie:' + item.imdb);
+      if (item.tvdb) k.push('movie:tvdb:movie:' + item.tvdb);
+      var m = String(item.titleId || '').match(/^tmdb:movie:(\d+)$/);
+      if (m && !item.tmdb) k.push('movie:tmdb:' + m[1]);
+      return k.join('|').toLowerCase();
+    }
+    function watchedKeysNow() {
+      if (watchedSet && Date.now() - watchedAt < 120000) return Promise.resolve(watchedSet);
+      if (watchedP) return watchedP;
+      watchedP = Api.watchedKeys(profile.id).then(function (r) {
+        var set = {};
+        if (r && Array.isArray(r.watched)) r.watched.forEach(function (k) { set[String(k).toLowerCase()] = true; });
+        else if (Array.isArray(r)) r.forEach(function (it) {   // older servers: the full list
+          if (!it || !it.watched || it.mediaType !== 'movie') return;
+          set[('movie:' + it.itemId).toLowerCase()] = true;
+          var x = it.externalIds || {};
+          if (x.tmdb) set['movie:tmdb:movie:' + x.tmdb] = true;
+          if (x.imdb) set[('movie:imdb:' + x.imdb).toLowerCase()] = true;
+        });
+        watchedSet = set; watchedAt = Date.now(); watchedP = null;
+        return set;
+      }, function () { watchedP = null; return watchedSet || {}; });
+      return watchedP;
+    }
+    function freshWatchedKeys() { watchedSet = null; return watchedKeysNow(); }
+    function filmWatched(set, keys) {
+      return !!keys && keys.split('|').some(function (k) { return set[k]; });
+    }
+    // Adds the ✓ to every film poster in el that's been watched.
+    function paintWatchedPosters(el) {
+      if (!el || !el.querySelector('[data-wk]')) return;
+      watchedKeysNow().then(function (set) {
+        el.querySelectorAll('[data-wk]').forEach(function (c) {
+          var on = filmWatched(set, c.getAttribute('data-wk')), tick = c.querySelector('i.seen');
+          if (on && !tick) { tick = document.createElement('i'); tick.className = 'seen'; tick.textContent = '✓'; c.appendChild(tick); }
+          else if (!on && tick) tick.parentNode.removeChild(tick);
+        });
       });
-      watchedSet = set; watchedAt = Date.now(); watchedP = null;
-      return set;
-    }, function () { watchedP = null; return watchedSet || {}; });
-    return watchedP;
-  }
-  function freshWatchedKeys() { watchedSet = null; return watchedKeysNow(); }
-  function filmWatched(set, keys) {
-    return !!keys && keys.split('|').some(function (k) { return set[k]; });
-  }
-  // Adds the ✓ to every film poster in el that's been watched.
-  function paintWatchedPosters(el) {
-    if (!el || !el.querySelector('[data-wk]')) return;
-    watchedKeysNow().then(function (set) {
-      el.querySelectorAll('[data-wk]').forEach(function (c) {
-        var on = filmWatched(set, c.getAttribute('data-wk')), tick = c.querySelector('i.seen');
-        if (on && !tick) { tick = document.createElement('i'); tick.className = 'seen'; tick.textContent = '✓'; c.appendChild(tick); }
-        else if (!on && tick) tick.parentNode.removeChild(tick);
-      });
-    });
-  }
-  function wkAttr(item) { var k = filmKeys(item); return k ? ' data-wk="' + esc(k) + '"' : ''; }
-
-  function posterCard(item, i) {
-    if (item.kind === 'seeAllLibrary') return '<button class="card poster see-all" data-focus data-t="' + i + '">See all →</button>';
-    if (item.isLibraryItem && !item.poster) return mediaFallback(item, 'data-t="' + i + '"' + wkAttr(item));
-    return '<button class="card poster" data-focus data-t="' + i + '"' + wkAttr(item) + '>' +
-      (item.poster ? imgTag(item.poster, 'w342', true) : '') +
-      fallbackSpan(item.name, item.year ? ' (' + item.year + ')' : '') + '</button>';
-  }
+    }
+    function wkAttr(item) { var k = filmKeys(item); return k ? ' data-wk="' + esc(k) + '"' : ''; }
+    // A plain poster card, indexed by whichever data-<attr> a screen uses to
+    // look its item back up (recommended/similar rows and the browse grid use
+    // data-t; search results use data-r and also need data-key, to refocus the
+    // same card by key when coming back from a title's detail screen).
+    function posterCard(item, i, opts) {
+      var attr = (opts && opts.attr) || 't';
+      if (item.kind === 'seeAllLibrary') return '<button class="card poster see-all" data-focus data-' + attr + '="' + i + '">See all →</button>';
+      if (item.isLibraryItem && !item.poster) return mediaFallback(item, 'data-' + attr + '="' + i + '"' + wkAttr(item));
+      return '<button class="card poster" data-focus data-' + attr + '="' + i + '"' + (opts && opts.key ? ' data-key="' + esc(item.key) + '"' : '') + wkAttr(item) + '>' +
+        (item.poster ? imgTag(item.poster, 'w342', true) : '') +
+        fallbackSpan(item.name, item.year ? ' (' + item.year + ')' : '') + '</button>';
+    }
+    return {
+      fallback: fallbackSpan, mediaFallback: mediaFallback, person: personCard, poster: posterCard,
+      wkAttr: wkAttr, filmKeys: filmKeys, filmWatched: filmWatched,
+      watchedKeysNow: watchedKeysNow, freshWatchedKeys: freshWatchedKeys, paintWatched: paintWatchedPosters
+    };
+  })();
 
   // ---------- ratings ----------
   // Scores from IMDb, Rotten Tomatoes, Metacritic and Letterboxd (through
@@ -1426,7 +1451,7 @@
   var ytBridge = null;   // kept so the call isn't dropped before it answers
   function openInYouTubeApp(item, key) {
     function failed(why) {
-      choiceBox('Couldn\'t play the trailer', 'YouTube wouldn\'t play it here, and the TV\'s YouTube app couldn\'t be opened' +
+      Modal.choice('Couldn\'t play the trailer', 'YouTube wouldn\'t play it here, and the TV\'s YouTube app couldn\'t be opened' +
         (why ? ' (' + why + ')' : '') + '. Is the YouTube app installed?', []);
     }
     if (typeof PalmServiceBridge === 'undefined') { failed('not running on a webOS TV'); return; }
@@ -1457,7 +1482,7 @@
     // offer as a failed embed gets, rather than building a broken one with
     // nowhere to point it.
     if (!page) {
-      choiceBox('This trailer won\'t play here', 'It can be opened in the TV\'s YouTube app instead. ' +
+      Modal.choice('This trailer won\'t play here', 'It can be opened in the TV\'s YouTube app instead. ' +
         'Back or the home bar brings you back here afterwards.', [
         { label: 'Open in YouTube', fn: function () { openInYouTubeApp(item, key); } }
       ]);
@@ -1524,7 +1549,7 @@
     function fallback() {
       if (done) return;
       close();
-      choiceBox('This trailer won\'t play here', 'It can be opened in the TV\'s YouTube app instead. ' +
+      Modal.choice('This trailer won\'t play here', 'It can be opened in the TV\'s YouTube app instead. ' +
         'Back or the home bar brings you back here afterwards.', [
         { label: 'Open in YouTube', fn: function () { openInYouTubeApp(item, key); } }
       ]);
@@ -1569,15 +1594,15 @@
     // keep them below the fold, past the episodes.
     var film = item.kind === 'movie';
     var html = '<div class="title-extras' + (film ? ' film' : '') + '" data-vscroll><div class="rows-layer">' +
-      (cast.length ? '<section class="row"><h2>Cast</h2><div class="row-track">' + cast.map(personCard).join('') + '</div></section>' : '') +
+      (cast.length ? '<section class="row"><h2>Cast</h2><div class="row-track">' + cast.map(Cards.person).join('') + '</div></section>' : '') +
       (others.length ? '<section class="row"><h2>' + esc('In ' + others.colName) + '</h2><div class="row-track">' + others.map(posterCard).join('') + '</div></section>' : '') +
       (similar.length ? '<section class="row"><h2>More like this</h2><div class="row-track">' +
-        similar.map(function (t, i) { return posterCard(t, 'm' + i); }).join('') + '</div></section>' : '') +
+        similar.map(function (t, i) { return Cards.poster(t, 'm' + i); }).join('') + '</div></section>' : '') +
       '</div></div>';
     view.insertAdjacentHTML('beforeend', html + (film ? '' :
       '<div class="extras-hint">▼ ' + (cast.length ? 'Cast and more' : others.length ? esc('More in ' + others.colName) : 'More like this') + '</div>'));
     var box = view.querySelector('.title-extras');
-    paintWatchedPosters(box);
+    Cards.paintWatched(box);
     if (film) {   // start just under the buttons, however tall the title and text are
       var ROW_H = 330, a = document.getElementById('actions').getBoundingClientRect();
       if (a.bottom + 24 + ROW_H > window.innerHeight) {
@@ -1644,11 +1669,11 @@
       var start = list.length;
       list = list.concat(items);
       return '<section class="row"><h2>' + esc(name) + '</h2><div class="row-track">' +
-        items.map(function (it, i) { return posterCard(it, start + i); }).join('') + '</div></section>';
+        items.map(function (it, i) { return Cards.poster(it, start + i); }).join('') + '</div></section>';
     }
     layer.innerHTML = (row('Films', films) + row('Series', series)) ||
       '<p class="muted" style="margin-left:var(--pad)">Nothing else listed for ' + esc(p.name) + '.</p>';
-    paintWatchedPosters(layer);
+    Cards.paintWatched(layer);
     function backToPerson() { openPerson(p, back); }
     layer.querySelectorAll('[data-t]').forEach(function (b) {
       b.addEventListener('click', function () { openTitle(list[+b.getAttribute('data-t')], backToPerson); });
@@ -1711,7 +1736,7 @@
       if (on && !tag) { tag = document.createElement('span'); tag.className = 'watched-tag'; tag.textContent = '✓ Watched'; row.insertBefore(tag, row.firstChild); }
       else if (!on && tag) tag.parentNode.removeChild(tag);
     }
-    watchedKeysNow().then(function (set) { if (document.body.contains(main)) showFilmWatched(filmWatched(set, filmKeys(item))); });
+    Cards.watchedKeysNow().then(function (set) { if (document.body.contains(main)) showFilmWatched(Cards.filmWatched(set, Cards.filmKeys(item))); });
     var filmMore = document.createElement('button');
     filmMore.className = 'btn more-btn'; filmMore.setAttribute('data-focus', ''); filmMore.textContent = '⋯';
     filmMore.setAttribute('aria-label', 'More');
@@ -1719,8 +1744,8 @@
     filmMore.addEventListener('click', async function () {
       var w = await Api.watchedItem(profile.id, 'movie', item.titleId).catch(function () { return null; });
       var isW = !!(w && (w.watched === true || (w.item && w.item.watched === true))) ||
-                filmWatched(await watchedKeysNow(), filmKeys(item));
-      choiceBox(item.name, 'Your other mediastorm apps will see this too.', [{
+                Cards.filmWatched(await Cards.watchedKeysNow(), Cards.filmKeys(item));
+      Modal.choice(item.name, 'Your other mediastorm apps will see this too.', [{
         label: isW ? 'Mark as unwatched' : 'Mark as watched',
         fn: async function () {
           var x = {};
@@ -1777,7 +1802,7 @@
     var watchP = Promise.all([
       watchStateFor(item),
       Api.progressList(profile.id).catch(function () { return []; }),
-      freshWatchedKeys()
+      Cards.freshWatchedKeys()
     ]);
     var details = await seriesDetailsCached(item);
     if (!document.body.contains(main)) return;   // left the page while loading
@@ -1819,7 +1844,7 @@
         var out = aired(ep);
         return '<button class="card ep' + (out ? '' : ' unaired') + '" data-focus data-ep="' + i + '">' +
           (img ? imgTag(img, 'w500', true) : '') +
-          fallbackSpan('E' + ep.episodeNumber) +
+          Cards.fallback('E' + ep.episodeNumber) +
           (watched[key] ? '<i class="seen">Watched</i>' : '') +
           '<span class="card-label"><em class="num">E' + ep.episodeNumber + '</em>' +
             (out ? esc(ep.name || 'Episode ' + ep.episodeNumber) : esc('Airs ' + dayLabel(String(ep.airedDate).slice(0, 10)))) + '</span>' +
@@ -1865,7 +1890,7 @@
       return Promise.all([
         watchStateFor(item),
         Api.progressList(profile.id).catch(function () { return []; }),
-      freshWatchedKeys()
+      Cards.freshWatchedKeys()
       ]).then(function (w) { applyWatch(w, true); });
     }
     // Episodes that haven't aired yet can't be marked watched. Ones with no
@@ -1882,7 +1907,7 @@
     function notOutYet(ep) {
       var when = ep.airedDate ? dayLabel(String(ep.airedDate).slice(0, 10)) : '';
       var epObj = { season: ep.seasonNumber, episode: ep.episodeNumber, title: ep.name || '', aired: String(ep.airedDate || '').slice(0, 10) };
-      choiceBox('Not out yet', epLabel(ep) + (ep.name ? ', ' + ep.name + ',' : '') + ' airs ' + (when || 'soon') + '.', [{
+      Modal.choice('Not out yet', epLabel(ep) + (ep.name ? ', ' + ep.name + ',' : '') + ' airs ' + (when || 'soon') + '.', [{
         label: 'Search anyway',
         fn: function () { var keep = titleReturn; renderPicker(item, epObj, function () { titleReturn = keep; renderTitle(item, null, epObj); }); }
       }]);
@@ -1911,7 +1936,7 @@
       if (!ep) return;
       var key = ep.seasonNumber + ':' + ep.episodeNumber, isW = !!watched[key];
       if (!aired(ep) && !isW) {
-        choiceBox((ep.seasonNumber === 0 ? 'Special ' : 'S' + ep.seasonNumber + ' ') + 'E' + ep.episodeNumber + (ep.name ? ': ' + ep.name : ''),
+        Modal.choice((ep.seasonNumber === 0 ? 'Special ' : 'S' + ep.seasonNumber + ' ') + 'E' + ep.episodeNumber + (ep.name ? ': ' + ep.name : ''),
           'This episode hasn\'t aired yet' + (ep.airedDate ? ': it\'s out ' + dayLabel(String(ep.airedDate).slice(0, 10)) : '') + '.', []);
         return;
       }
@@ -1933,13 +1958,13 @@
       var seasonAllW = se.episodes.filter(aired).every(function (e) { return watched[e.seasonNumber + ':' + e.episodeNumber]; });
       choices.push({ label: 'Mark ' + seasonName(se) + (seasonAllW ? ' unwatched' : ' watched'),
                      fn: function () { markEpisodes(se.episodes, !seasonAllW, seasonName(se)); } });
-      choiceBox(label, 'Your other mediastorm apps will see this too.', choices);
+      Modal.choice(label, 'Your other mediastorm apps will see this too.', choices);
     }
     function seasonMenu() {
       var se = seasons[shownSeason];
       if (!se) return;
       var allW = se.episodes.filter(aired).every(function (ep) { return watched[ep.seasonNumber + ':' + ep.episodeNumber]; });
-      choiceBox(item.name, 'Hold OK on an episode to mark just that one.', [
+      Modal.choice(item.name, 'Hold OK on an episode to mark just that one.', [
         { label: (allW ? 'Mark ' + seasonName(se) + ' unwatched' : 'Mark ' + seasonName(se) + ' watched'),
           fn: function () { markEpisodes(se.episodes, !allW, seasonName(se)); } }
       ].concat(continueChoice(item)));
@@ -2029,7 +2054,7 @@
           Promise.all([
             watchStateFor(item),
             Api.progressList(profile.id).catch(function () { return []; }),
-      freshWatchedKeys()
+      Cards.freshWatchedKeys()
           ]).then(function (w) { applyWatch(w, true); });
         }, RESTORE_REFRESH_MS);
       }
@@ -2550,7 +2575,7 @@
       heroWait = setTimeout(function () { hero(it); }, 300);          // the backdrop once you settle
     });
     function draw(from) {
-      var html = state.items.slice(from).map(function (it, k) { return posterCard(it, from + k); }).join('');
+      var html = state.items.slice(from).map(function (it, k) { return Cards.poster(it, from + k); }).join('');
       grid.insertAdjacentHTML('beforeend', html);
       grid.querySelectorAll('[data-t]').forEach(function (c) {
         if (c._wired) return;
@@ -2563,7 +2588,7 @@
         // Nearing the end of what's loaded: fetch the next page.
         c.addEventListener('focus', function () { if (i >= state.items.length - 14) more(); });
       });
-      paintWatchedPosters(grid);
+      Cards.paintWatched(grid);
     }
     async function more() {
       if (state.loading || (state.total != null && state.items.length >= state.total)) return;
@@ -2628,7 +2653,7 @@
       heroWait = setTimeout(function () { hero(it); }, 300);
     });
     function draw(from) {
-      var html = state.items.slice(from).map(function (it, k) { return posterCard(it, from + k); }).join('');
+      var html = state.items.slice(from).map(function (it, k) { return Cards.poster(it, from + k); }).join('');
       grid.insertAdjacentHTML('beforeend', html);
       grid.querySelectorAll('[data-t]').forEach(function (c) {
         if (c._wired) return;
@@ -2640,7 +2665,7 @@
         });
         c.addEventListener('focus', function () { if (i >= state.items.length - 14) more(); });
       });
-      paintWatchedPosters(grid);
+      Cards.paintWatched(grid);
     }
     async function more() {
       if (state.loading || (state.total != null && state.items.length >= state.total)) return;
@@ -3009,11 +3034,9 @@
       return;
     }
     box.innerHTML = searchState.results.map(function (item, i) {
-      return '<button class="card poster" data-focus data-r="' + i + '" data-key="' + esc(item.key) + '"' + wkAttr(item) + '>' +
-        (item.poster ? imgTag(item.poster, 'w342', true) : '') +
-        fallbackSpan(item.name, item.year ? ' (' + item.year + ')' : '') + '</button>';
+      return Cards.poster(item, i, { attr: 'r', key: true });
     }).join('');
-    paintWatchedPosters(box);
+    Cards.paintWatched(box);
     box.querySelectorAll('.card').forEach(function (c) {
       c.addEventListener('focus', function () {
         var item = searchState.results[+c.getAttribute('data-r')];
@@ -3038,7 +3061,7 @@
     // session and profiles in the background.
     var cachedProfiles = saved.profiles || [];
     var last = cachedProfiles.filter(function (p) { return p.id === saved.profileId; })[0];
-    if (last && !last.pinLength && readHomeCacheFor(last.id)) {
+    if (last && !last.pinLength && Cache.hasHomeFor(last.id)) {
       profiles = cachedProfiles;
       profile = last;
       renderHome();
@@ -3052,9 +3075,6 @@
       return;
     }
     await renderProfiles(true);
-  }
-  function readHomeCacheFor(id) {
-    try { return Boolean(localStorage.getItem(STORE + '-home-' + id)); } catch (e) { return false; }
   }
   boot();
 })();
