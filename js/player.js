@@ -449,11 +449,12 @@ var Player = (function () {
 
     // The very first pick (prep screen still showing, nothing played yet):
     // a beat on what was actually found, rather than cutting straight to the
-    // player the instant a release passes its check.
+    // player the instant a release passes its check. Long enough to actually
+    // read, even when checking itself was fast (cached, single candidate).
     if (!token.current && c.info) {
       prepLine('Found it — ' + [resLabel(c.info.height), hdrLabel(c.info)].filter(Boolean).join('  ·  '));
       prepCandidates(token);
-      await new Promise(function (r) { setTimeout(r, 650); });
+      await new Promise(function (r) { setTimeout(r, 1500); });
       if (s !== token) return;
     }
 
