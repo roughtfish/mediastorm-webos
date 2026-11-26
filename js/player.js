@@ -66,7 +66,8 @@ var Player = (function () {
     box.innerHTML = token.candidates.map(function (c) {
       var cls = c.used || c.state === 'ok' ? 'ok' : c.state === 'bad' ? 'bad' : c.state === 'p7' ? 'p7'
         : c.state === 'pending' ? 'pending' : 'queued';
-      return '<li class="' + cls + '">' + Util.esc(shortName(c.name || 'release')) + '</li>';
+      return '<li class="' + cls + '">' + Util.esc(shortName(c.name || 'release')) +
+        '<span class="prep-attempt-service">' + Util.esc(serviceLabel(c)) + '</span></li>';
     }).join('');
   }
 
@@ -170,6 +171,15 @@ var Player = (function () {
   // The work is kept on the candidate, so it's only ever done once: a backup
   // prepared earlier is ready instantly when it's needed.
   function serviceKind(c) { return /usenet/i.test(c.serviceType || '') ? 'usenet' : 'debrid'; }
+  // The actual provider once it's known (TorBox, Real-Debrid, ...), read the
+  // same way as the resolved path parses it for streamMeta/sourceWhat below.
+  // Debrid releases don't say which service will serve them until resolving
+  // picks one, so this is just "Debrid" until then.
+  function serviceLabel(c) {
+    var m = /^\/debrid\/([^/]+)\//.exec(c.path || '');
+    if (m) return SERVICES[m[1].toLowerCase().replace(/[^a-z]/g, '')] || m[1];
+    return serviceKind(c) === 'usenet' ? 'Usenet' : 'Debrid';
+  }
   function prepare(c, token, quiet) {
     if (c.prep) return c.prep;
     token.attempts++;
@@ -261,7 +271,7 @@ var Player = (function () {
       // it's coming from.
       var lead = pending[0];
       prepLine('Checking ' + shortName(lead.name) + (pending.length > 1 ? '  (+' + (pending.length - 1) + ' more)' : '') +
-        '  ·  ' + (serviceKind(lead) === 'usenet' ? 'Usenet' : 'Debrid'));
+        '  ·  ' + serviceLabel(lead));
       prepCandidates(token);
 
       var waits = pending.map(function (c) { return c.prep; });
@@ -367,6 +377,7 @@ var Player = (function () {
     $('prep').className = 'on';
     $('prep-title').textContent = opts.item.name + (token.episode ? '  ' + episodeCode(token.episode) : '');
     prepArt(opts.item);
+    $('prep-attempts').innerHTML = '';   // clear the previous episode's list, not just leave it stale till the next check
     prepLine('Getting ready');
 
     try {

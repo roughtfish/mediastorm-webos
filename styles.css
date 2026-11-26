@@ -278,6 +278,9 @@
   #prep-attempts li.bad { opacity: .5; text-decoration: line-through; }
   #prep-attempts li.bad::before { content: "✗"; color: var(--bad); }
   #prep-attempts li.p7::before { content: "△"; color: var(--warn); }
+  /* The provider (TorBox, Real-Debrid, Usenet, ...), set off from the release
+     name rather than run into it. */
+  #prep-attempts .prep-attempt-service { margin-left: 14px; opacity: .6; font-size: 22px; }
   #prep-hint { position: absolute; left: var(--pad); bottom: 90px; color: var(--muted); font-size: 24px; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
