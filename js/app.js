@@ -418,13 +418,7 @@
   }
 
   // ---------- images ----------
-  // mediastorm asks TMDB for large images (w780 posters, original backdrops
-  // and episode stills). Cards are much smaller, so the app asks TMDB for a
-  // size that fits instead. Anything that isn't a TMDB image is left alone,
-  // and if TMDB refuses the smaller size the original is loaded instead.
-  function tmdbSize(url, size) {
-    return url ? String(url).replace(/(\/\/image\.tmdb\.org\/t\/p\/)(w\d+|original)(\/)/, '$1' + size + '$3') : url;
-  }
+  var tmdbSize = Util.tmdbSize;   // shared with the player, rather than a private copy
   window.msImgFail = function (el) {
     var full = el.getAttribute('data-full');
     if (full && el.getAttribute('src') !== full) el.setAttribute('src', full);

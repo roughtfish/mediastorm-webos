@@ -42,6 +42,20 @@ var Player = (function () {
 
   // ---------- preparing ----------
   function prepLine(text) { $('prep-status').textContent = text; }
+  // The title's own backdrop (or poster, if that's all there is), behind the
+  // prep screen's text. Built with the DOM rather than a template string
+  // since there's nothing here that needs escaping.
+  function prepArt(item) {
+    var box = $('prep-art');
+    box.innerHTML = '';
+    var full = item && (item.backdrop || item.poster);
+    if (!full) return;
+    var img = document.createElement('img');
+    img.alt = '';
+    img.onerror = function () { img.remove(); };
+    img.src = Util.tmdbSize(full, 'w1280');
+    box.appendChild(img);
+  }
 
   function prequeueBody(item, episode, profileId, clientId) {
     var body = {
@@ -329,6 +343,7 @@ var Player = (function () {
     s = token;
     $('prep').className = 'on';
     $('prep-title').textContent = opts.item.name + (token.episode ? '  ' + episodeCode(token.episode) : '');
+    prepArt(opts.item);
     prepLine('Getting ready');
 
     try {

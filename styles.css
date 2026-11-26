@@ -1,5 +1,6 @@
   :root {
     --night: #18202D;
+    --night-rgb: 24 32 45;   /* --night, split out so overlays can vary its opacity */
     --night-deep: #111722;
     --panel: #222C3B;
     --panel-up: #2B374A;
@@ -247,12 +248,22 @@
   /* ---------- preparing ---------- */
   #prep { position: fixed; inset: 0; background: var(--night); display: none; z-index: 20; }
   #prep.on { display: block; }
+  /* The title's own backdrop, dimmed behind the text with the same two-way
+     gradient the title page uses: solid where the text sits (left), fading
+     in toward the art (right), so it's mood rather than something to read
+     past. */
+  #prep-art { position: absolute; inset: 0; }
+  #prep-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  #prep-art::after { content: ""; position: absolute; inset: 0;
+    background: linear-gradient(90deg, var(--night) 0%, rgb(var(--night-rgb) / .88) 35%, rgb(var(--night-rgb) / .2) 75%),
+                linear-gradient(0deg, var(--night) 0%, rgb(var(--night-rgb) / 0) 40%); }
   #prep-title { position: absolute; left: var(--pad); top: 380px; font-size: 60px; font-weight: 600; }
-  #prep-status { position: absolute; left: var(--pad); top: 480px; color: var(--muted); font-size: 34px; }
-  #prep-status::before { content: ""; display: inline-block; width: 18px; height: 18px; margin-right: 18px; border-radius: 50%;
-    background: var(--bolt); animation: pulse 1.2s ease-in-out infinite; vertical-align: middle; }
+  #prep-status { position: absolute; left: var(--pad); top: 480px; color: var(--muted); font-size: 34px; display: flex; align-items: center; }
+  #prep-status::before { content: ""; display: inline-block; width: 36px; height: 36px; margin-right: 22px; flex: none;
+    border-radius: 50%; border: 5px solid rgb(154 166 186 / .25); border-top-color: var(--bolt);
+    animation: spin .9s linear infinite; }
   #prep-hint { position: absolute; left: var(--pad); bottom: 90px; color: var(--muted); font-size: 24px; }
-  @keyframes pulse { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
   /* ---------- player ---------- */
   #player { position: fixed; inset: 0; background: #000; display: none; z-index: 30; }

@@ -7,6 +7,14 @@ var Util = (function () {
     });
   }
   function pad2(n) { n = String(n); return n.length < 2 ? '0' + n : n; }
+  // mediastorm asks TMDB for large images (w780 posters, original backdrops
+  // and episode stills). Most places this is shown are much smaller, so the
+  // app asks TMDB for a size that fits instead. Anything that isn't a TMDB
+  // image is left alone, and if TMDB refuses the smaller size the original
+  // is loaded instead.
+  function tmdbSize(url, size) {
+    return url ? String(url).replace(/(\/\/image\.tmdb\.org\/t\/p\/)(w\d+|original)(\/)/, '$1' + size + '$3') : url;
+  }
   // Every ID a show might be filed under in mediastorm (TVDB, TMDB, IMDb and
   // its own), since it doesn't always link them.
   function showIds(item) {
@@ -34,5 +42,5 @@ var Util = (function () {
     }).replace(/\(combined weight (\d+)\)/, '(weight $1)');
   }
 
-  return { esc: esc, pad2: pad2, showIds: showIds, plainTerm: plainTerm, plainReason: plainReason };
+  return { esc: esc, pad2: pad2, showIds: showIds, plainTerm: plainTerm, plainReason: plainReason, tmdbSize: tmdbSize };
 })();
