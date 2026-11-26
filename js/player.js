@@ -1083,11 +1083,18 @@ var Player = (function () {
     return true;
   }
 
+  // The current/duration text plus, appended, the clock time playback will
+  // actually finish at. Shared by timeupdate, endScrub, and the paused tick
+  // below (paused, currentTime holds still but the end clock keeps moving).
+  function updateOsdTime() {
+    if (!scrub && video.duration) $('osd-time').textContent = fmt(video.currentTime) + ' / ' + fmt(video.duration) + endClock(video.duration - video.currentTime);
+  }
+
   video.addEventListener('timeupdate', function () {
     if (!video.duration) return;
     updateSkip();
     $('osd-bar').style.width = (100 * video.currentTime / video.duration) + '%';
-    if (!scrub) $('osd-time').textContent = fmt(video.currentTime) + ' / ' + fmt(video.duration) + endClock(video.duration - video.currentTime);
+    updateOsdTime();
     var t = s;
     if (t && t.creditsAt && !t.creditsShown && !upNext && !scrub && !video.paused &&
         video.currentTime >= t.creditsAt && video.currentTime < video.duration - 5) {
@@ -1249,7 +1256,16 @@ var Player = (function () {
             onExit: t.onExit, nextEpisode: t.nextEpisode, resume: false, startAt: 0,
             cast: t.cast, onPerson: t.onPerson });
   }
-  video.addEventListener('pause', function () { if (s) { showOsd(); sendProgress(s, false); } });
+  // While genuinely paused (not just between timeupdate ticks), currentTime
+  // holds still but the "Ends" clock time shouldn't: it keeps meaning "if you
+  // pressed play right now", so it has to keep advancing with the clock.
+  var pauseTick = null;
+  video.addEventListener('pause', function () {
+    if (s) { showOsd(); sendProgress(s, false); }
+    clearInterval(pauseTick);
+    pauseTick = setInterval(updateOsdTime, 15000);
+  });
+  video.addEventListener('play', function () { clearInterval(pauseTick); pauseTick = null; });
 
   function fmt(sec) {
     if (!isFinite(sec)) return '–';
@@ -1348,13 +1364,14 @@ var Player = (function () {
     if (scrub) clearTimeout(scrub.timer);
     scrub = null;
     drawScrub();
-    if (video.duration) $('osd-time').textContent = fmt(video.currentTime) + ' / ' + fmt(video.duration) + endClock(video.duration - video.currentTime);
+    updateOsdTime();
   }
 
   // ---------- leaving ----------
   function teardown() {
     if (!s) return;
     clearTimeout(s.startTimer); clearTimeout(s.stallTimer); clearInterval(s.progressTimer);
+    clearInterval(pauseTick); pauseTick = null;
   }
   function stop(silent) {
     var token = s;
