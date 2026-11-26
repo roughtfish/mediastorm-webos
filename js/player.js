@@ -1063,7 +1063,7 @@ var Player = (function () {
     if (!video.duration) return;
     updateSkip();
     $('osd-bar').style.width = (100 * video.currentTime / video.duration) + '%';
-    if (!scrub) $('osd-time').textContent = fmt(video.currentTime) + ' / ' + fmt(video.duration);
+    if (!scrub) $('osd-time').textContent = fmt(video.currentTime) + ' / ' + fmt(video.duration) + endClock(video.duration - video.currentTime);
     var t = s;
     if (t && t.creditsAt && !t.creditsShown && !upNext && !scrub && !video.paused &&
         video.currentTime >= t.creditsAt && video.currentTime < video.duration - 5) {
@@ -1234,6 +1234,14 @@ var Player = (function () {
     return (h ? h + ':' + pad2(m) : m) + ':' + pad2(x);
   }
 
+  // The 24-hour clock time playback will reach a given point from now, e.g.
+  // "  ·  Ends 22:45". Blank once there's nothing to count down from.
+  function endClock(remaining) {
+    if (!isFinite(remaining) || remaining < 0) return '';
+    var d = new Date(Date.now() + remaining * 1000);
+    return '  ·  Ends ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+  }
+
   function showOsd() {
     $('osd').className = '';
     clearTimeout(osdTimer);
@@ -1301,7 +1309,7 @@ var Player = (function () {
     m.style.left = (100 * scrub.target / video.duration) + '%';
     m.className = 'on';
     var d = scrub.target - scrub.from;
-    t.textContent = fmt(scrub.target) + ' / ' + fmt(video.duration) + '   (' + (d >= 0 ? '+' : '−') + fmt(Math.abs(d)) + ')';
+    t.textContent = fmt(scrub.target) + ' / ' + fmt(video.duration) + '   (' + (d >= 0 ? '+' : '−') + fmt(Math.abs(d)) + ')' + endClock(video.duration - scrub.target);
     t.className = 'scrub';
     showOsd();
   }
@@ -1316,7 +1324,7 @@ var Player = (function () {
     if (scrub) clearTimeout(scrub.timer);
     scrub = null;
     drawScrub();
-    if (video.duration) $('osd-time').textContent = fmt(video.currentTime) + ' / ' + fmt(video.duration);
+    if (video.duration) $('osd-time').textContent = fmt(video.currentTime) + ' / ' + fmt(video.duration) + endClock(video.duration - video.currentTime);
   }
 
   // ---------- leaving ----------
