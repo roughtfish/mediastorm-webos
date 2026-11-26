@@ -2,6 +2,24 @@
 
 What changed in each version of mediastorm for LG webOS, newest first.
 
+## 1.19.1 (2026-11-26)
+
+- The screen shown while mediastorm finds a release to play now has the
+  title's own backdrop art behind it and a spinning loading ring, instead
+  of a plain blue screen with a pulsing dot.
+- When more than one release is being weighed, the prep screen names which
+  one's being checked, shows a running attempt log (ticked off, crossed
+  out, or still queued as each is checked), and flashes "Found it" with
+  the resolution/HDR before cutting to playback. Each attempt is tagged
+  with a compact color-coded chip for its actual provider (TorBox,
+  Real-Debrid, AllDebrid, Premiumize, Debrid-Link, or Usenet), read once
+  it's resolved rather than just "Debrid".
+- Fixed the attempt list carrying over the previous episode's releases
+  into the next one's prep screen.
+- The player's on-screen time display now also shows the actual clock
+  time playback will finish (e.g. "1:00:00 / 2:00:00 · Ends 23:08"),
+  updating live while seeking.
+
 ## 1.17.0 (2026-11-14)
 
 - Declared the app's required Access Control Group (ACG), which LG now
