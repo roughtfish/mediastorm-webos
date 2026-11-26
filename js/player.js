@@ -66,8 +66,9 @@ var Player = (function () {
     box.innerHTML = token.candidates.map(function (c) {
       var cls = c.used || c.state === 'ok' ? 'ok' : c.state === 'bad' ? 'bad' : c.state === 'p7' ? 'p7'
         : c.state === 'pending' ? 'pending' : 'queued';
-      return '<li class="' + cls + '">' + Util.esc(shortName(c.name || 'release')) +
-        '<span class="prep-attempt-service">' + Util.esc(serviceLabel(c)) + '</span></li>';
+      var badge = serviceBadge(c);
+      return '<li class="' + cls + '"><b class="svc-badge svc-' + badge.cls + '">' + Util.esc(badge.abbr) + '</b>' +
+        '<span class="prep-attempt-name">' + Util.esc(shortName(c.name || 'release')) + '</span></li>';
     }).join('');
   }
 
@@ -179,6 +180,17 @@ var Player = (function () {
     var m = /^\/debrid\/([^/]+)\//.exec(c.path || '');
     if (m) return SERVICES[m[1].toLowerCase().replace(/[^a-z]/g, '')] || m[1];
     return serviceKind(c) === 'usenet' ? 'Usenet' : 'Debrid';
+  }
+  // A compact color-coded chip for the attempt list, since there's no real
+  // logo to show: same provider detection as serviceLabel, just abbreviated.
+  var SERVICE_ABBR = { torbox: 'TB', realdebrid: 'RD', alldebrid: 'AD', premiumize: 'PM', debridlink: 'DL' };
+  function serviceBadge(c) {
+    var m = /^\/debrid\/([^/]+)\//.exec(c.path || '');
+    if (m) {
+      var key = m[1].toLowerCase().replace(/[^a-z]/g, '');
+      return { abbr: SERVICE_ABBR[key] || key.slice(0, 2).toUpperCase(), cls: SERVICE_ABBR[key] ? key : 'other' };
+    }
+    return serviceKind(c) === 'usenet' ? { abbr: 'NZB', cls: 'usenet' } : { abbr: 'DB', cls: 'debrid' };
   }
   function prepare(c, token, quiet) {
     if (c.prep) return c.prep;

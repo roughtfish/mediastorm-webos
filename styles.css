@@ -268,7 +268,8 @@
      a backup feels like progress rather than a stall. */
   #prep-attempts { position: absolute; left: var(--pad); top: 560px; width: 900px; max-height: 340px; overflow: hidden;
     list-style: none; margin: 0; padding: 0; font-size: 26px; color: var(--muted); }
-  #prep-attempts li { position: relative; padding: 7px 0 7px 46px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #prep-attempts li { position: relative; display: flex; align-items: center; gap: 10px;
+    padding: 7px 0 7px 46px; overflow: hidden; }
   #prep-attempts li::before { position: absolute; left: 0; top: 7px; width: 28px; text-align: center; }
   #prep-attempts li.queued::before { content: "○"; opacity: .4; }
   #prep-attempts li.pending::before { content: ""; width: 20px; height: 20px; border-radius: 50%; display: inline-block;
@@ -278,9 +279,20 @@
   #prep-attempts li.bad { opacity: .5; text-decoration: line-through; }
   #prep-attempts li.bad::before { content: "✗"; color: var(--bad); }
   #prep-attempts li.p7::before { content: "△"; color: var(--warn); }
-  /* The provider (TorBox, Real-Debrid, Usenet, ...), set off from the release
-     name rather than run into it. */
-  #prep-attempts .prep-attempt-service { margin-left: 14px; opacity: .6; font-size: 22px; }
+  /* The provider, as a compact color-coded chip (no real logo to show) so it
+     costs little of the row's width, leaving the name room to breathe. */
+  #prep-attempts .svc-badge { flex: 0 0 auto; min-width: 34px; padding: 2px 7px; border-radius: 4px;
+    font-size: 16px; font-weight: 700; text-align: center; color: #0b0f16; }
+  #prep-attempts .svc-torbox { background: #3ddc97; }
+  #prep-attempts .svc-realdebrid { background: #f2c94c; }
+  #prep-attempts .svc-alldebrid { background: #56ccf2; }
+  #prep-attempts .svc-premiumize { background: #bb86fc; }
+  #prep-attempts .svc-debridlink { background: #6fcf97; }
+  #prep-attempts .svc-debrid, #prep-attempts .svc-other { background: #9aa6ba; }
+  #prep-attempts .svc-usenet { background: #5b8def; }
+  #prep-attempts li.bad .svc-badge { background: #6b7385; color: rgb(11 15 22 / .7); }
+  #prep-attempts .prep-attempt-name { flex: 1 1 auto; min-width: 0; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; }
   #prep-hint { position: absolute; left: var(--pad); bottom: 90px; color: var(--muted); font-size: 24px; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
