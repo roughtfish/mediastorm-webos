@@ -56,6 +56,19 @@ var Player = (function () {
     img.src = Util.tmdbSize(full, 'w1280');
     box.appendChild(img);
   }
+  // The releases being weighed, ticked off or crossed out as each is
+  // checked. Left empty (and so invisible) when there's only one, since a
+  // one-item list of what's being checked has nothing to add.
+  function prepCandidates(token) {
+    var box = $('prep-attempts');
+    if (!box) return;
+    if (token.candidates.length < 2) { box.innerHTML = ''; return; }
+    box.innerHTML = token.candidates.map(function (c) {
+      var cls = c.used || c.state === 'ok' ? 'ok' : c.state === 'bad' ? 'bad' : c.state === 'p7' ? 'p7'
+        : c.state === 'pending' ? 'pending' : 'queued';
+      return '<li class="' + cls + '">' + Util.esc(shortName(c.name || 'release')) + '</li>';
+    }).join('');
+  }
 
   function prequeueBody(item, episode, profileId, clientId) {
     var body = {
@@ -147,6 +160,11 @@ var Player = (function () {
     if (/hdr|pq|hlg/i.test(info.hdr)) return info.hdr.toUpperCase().indexOf('HLG') !== -1 ? 'HLG' : 'HDR10';
     return '';
   }
+  // The usual marketing name for a vertical resolution, not the raw pixel count.
+  function resLabel(height) {
+    if (!height) return '';
+    return (height >= 2000 ? '2160p' : height >= 1000 ? '1080p' : height >= 700 ? '720p' : height + 'p');
+  }
 
   // Prepares one candidate (resolving it if needed) and checks the file.
   // The work is kept on the candidate, so it's only ever done once: a backup
@@ -237,9 +255,14 @@ var Player = (function () {
         throw new Error(token.notes.length ? token.notes[token.notes.length - 1] + ' No other release worked either.' : 'None of the available releases could be played.');
       }
 
-      var tried = list.filter(function (c) { return c.state && c.state !== 'pending'; }).length;
-      prepLine(tried === 0 && pending.length === 1 ? 'Checking the file'
-        : 'Trying other releases (' + pending.length + ' being checked, ' + tried + ' done)');
+      // Named after the best-ranked release currently being checked (pending
+      // is in the same order as token.candidates, i.e. mediastorm's ranking),
+      // with how many others are being tried alongside it and which service
+      // it's coming from.
+      var lead = pending[0];
+      prepLine('Checking ' + shortName(lead.name) + (pending.length > 1 ? '  (+' + (pending.length - 1) + ' more)' : '') +
+        '  ·  ' + (serviceKind(lead) === 'usenet' ? 'Usenet' : 'Debrid'));
+      prepCandidates(token);
 
       var waits = pending.map(function (c) { return c.prep; });
       if (graceUntil) waits.push(new Promise(function (ok) { setTimeout(ok, Math.max(0, graceUntil - Date.now())); }));
@@ -423,6 +446,16 @@ var Player = (function () {
     try { c = await pickCandidate(token); }
     catch (e) { if (e.message !== 'cancelled' && s === token) fail(e.message); return; }
     if (s !== token) return;
+
+    // The very first pick (prep screen still showing, nothing played yet):
+    // a beat on what was actually found, rather than cutting straight to the
+    // player the instant a release passes its check.
+    if (!token.current && c.info) {
+      prepLine('Found it — ' + [resLabel(c.info.height), hdrLabel(c.info)].filter(Boolean).join('  ·  '));
+      prepCandidates(token);
+      await new Promise(function (r) { setTimeout(r, 650); });
+      if (s !== token) return;
+    }
 
     var previous = token.current;
     if (previous && reason && previous !== c) {

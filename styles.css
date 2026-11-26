@@ -257,11 +257,27 @@
   #prep-art::after { content: ""; position: absolute; inset: 0;
     background: linear-gradient(90deg, var(--night) 0%, rgb(var(--night-rgb) / .88) 35%, rgb(var(--night-rgb) / .2) 75%),
                 linear-gradient(0deg, var(--night) 0%, rgb(var(--night-rgb) / 0) 40%); }
-  #prep-title { position: absolute; left: var(--pad); top: 380px; font-size: 60px; font-weight: 600; }
-  #prep-status { position: absolute; left: var(--pad); top: 480px; color: var(--muted); font-size: 34px; display: flex; align-items: center; }
+  #prep-title { position: absolute; left: var(--pad); top: 380px; width: 900px; font-size: 60px; font-weight: 600; }
+  #prep-status { position: absolute; left: var(--pad); top: 480px; width: 900px; color: var(--muted); font-size: 34px;
+    display: flex; align-items: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #prep-status::before { content: ""; display: inline-block; width: 36px; height: 36px; margin-right: 22px; flex: none;
     border-radius: 50%; border: 5px solid rgb(154 166 186 / .25); border-top-color: var(--bolt);
     animation: spin .9s linear infinite; }
+  /* The releases mediastorm is weighing, filled in only once there's more
+     than one: ticked off or crossed out as each is checked, so waiting for
+     a backup feels like progress rather than a stall. */
+  #prep-attempts { position: absolute; left: var(--pad); top: 560px; width: 900px; max-height: 340px; overflow: hidden;
+    list-style: none; margin: 0; padding: 0; font-size: 26px; color: var(--muted); }
+  #prep-attempts li { position: relative; padding: 7px 0 7px 46px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #prep-attempts li::before { position: absolute; left: 0; top: 7px; width: 28px; text-align: center; }
+  #prep-attempts li.queued::before { content: "○"; opacity: .4; }
+  #prep-attempts li.pending::before { content: ""; width: 20px; height: 20px; border-radius: 50%; display: inline-block;
+    border: 3px solid rgb(154 166 186 / .25); border-top-color: var(--bolt); animation: spin .9s linear infinite; }
+  #prep-attempts li.ok { color: var(--text); }
+  #prep-attempts li.ok::before { content: "✓"; color: var(--good); }
+  #prep-attempts li.bad { opacity: .5; text-decoration: line-through; }
+  #prep-attempts li.bad::before { content: "✗"; color: var(--bad); }
+  #prep-attempts li.p7::before { content: "△"; color: var(--warn); }
   #prep-hint { position: absolute; left: var(--pad); bottom: 90px; color: var(--muted); font-size: 24px; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
