@@ -2,6 +2,20 @@
 
 What changed in each version of mediastorm for LG webOS, newest first.
 
+## 1.19.2 (2026-11-27)
+
+- Fixed the prep screen's title running into the status text underneath it
+  for a long title (a tidied local/seedbox file name can run much longer
+  than a release title usually does and wrap to two lines).
+- The OSD's end-of-video clock time now keeps advancing while paused,
+  instead of freezing at whatever it showed the instant you paused.
+- The OSD now shows resolution alongside HDR (previously HDR only), and
+  the same color-coded provider chip from the prep screen's attempt list,
+  covering Plex/Jellyfin/library sources too.
+- The home screen's placeholder tile for local/library items (no poster)
+  now clamps its title to 3 lines, so a long tidied file name can no
+  longer grow tall enough to run into the play icon above it.
+
 ## 1.19.1 (2026-11-26)
 
 - The screen shown while mediastorm finds a release to play now has the
