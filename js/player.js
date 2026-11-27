@@ -370,6 +370,22 @@ var Player = (function () {
     var direct = url.indexOf(Api.server) !== 0;
     return sourceWhat(path) + (direct ? ', streaming direct' : ', via your server');
   }
+  // The same compact chip style as the prep screen's attempt list, for the
+  // OSD's source line. Unlike serviceBadge/serviceLabel above (which may run
+  // before a debrid release has been resolved to a specific provider), this
+  // is only ever called once playback's actually started, so path is always
+  // known — covering Plex/Jellyfin/library too, which the prep screen never
+  // needs to badge (they're not weighed release candidates).
+  function sourceBadge(path) {
+    var m = /^\/debrid\/([^/]+)/.exec(path || '');
+    if (m) {
+      var key = m[1].toLowerCase().replace(/[^a-z]/g, '');
+      return { abbr: SERVICE_ABBR[key] || key.slice(0, 2).toUpperCase(), cls: SERVICE_ABBR[key] ? key : 'other' };
+    }
+    var lm = /^(plexmedia|jellyfinmedia|localmedia):/.exec(path || '');
+    if (lm) return lm[1] === 'plexmedia' ? { abbr: 'PX', cls: 'plex' } : lm[1] === 'jellyfinmedia' ? { abbr: 'JF', cls: 'jellyfin' } : { abbr: 'LIB', cls: 'library' };
+    return { abbr: 'NZB', cls: 'usenet' };
+  }
 
   function candidateFromResult(result) {
     return { result: result, name: result.title, serviceType: result.serviceType, path: result.knownPath || '' };
@@ -503,9 +519,10 @@ var Player = (function () {
     $('player').className = 'on';
     $('osd-title').textContent = token.item.name;
     $('osd-sub').textContent = [token.episode ? episodeCode(token.episode) + (token.episode.title ? '  ' + token.episode.title : '') : '',
-                                hdrLabel(c.info)].filter(Boolean).join('    ');
+                                [resLabel(c.info && c.info.height), hdrLabel(c.info)].filter(Boolean).join('  ·  ')].filter(Boolean).join('    ');
     $('osd-release').textContent = c.name || '';
-    $('osd-source').textContent = sourceLabel(c.path, url);
+    var srcBadge = sourceBadge(c.path);
+    $('osd-source').innerHTML = '<b class="svc-badge svc-' + srcBadge.cls + '">' + Util.esc(srcBadge.abbr) + '</b> ' + Util.esc(sourceLabel(c.path, url));
     // A genuinely new episode (not just switching to a backup source for the
     // same one): clear the progress bar and time straight away, rather than
     // leaving the previous episode's fill showing until the new video's first

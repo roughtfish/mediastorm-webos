@@ -286,16 +286,20 @@
   #prep-attempts li.bad::before { content: "✗"; color: var(--bad); }
   #prep-attempts li.p7::before { content: "△"; color: var(--warn); }
   /* The provider, as a compact color-coded chip (no real logo to show) so it
-     costs little of the row's width, leaving the name room to breathe. */
-  #prep-attempts .svc-badge { flex: 0 0 auto; min-width: 34px; padding: 2px 7px; border-radius: 4px;
+     costs little of a row's width. Shared between the prep screen's attempt
+     list and the OSD's source line, for the same look in both. */
+  .svc-badge { display: inline-block; flex: 0 0 auto; min-width: 34px; padding: 2px 7px; border-radius: 4px;
     font-size: 16px; font-weight: 700; text-align: center; color: #0b0f16; }
-  #prep-attempts .svc-torbox { background: #3ddc97; }
-  #prep-attempts .svc-realdebrid { background: #f2c94c; }
-  #prep-attempts .svc-alldebrid { background: #56ccf2; }
-  #prep-attempts .svc-premiumize { background: #bb86fc; }
-  #prep-attempts .svc-debridlink { background: #6fcf97; }
-  #prep-attempts .svc-debrid, #prep-attempts .svc-other { background: #9aa6ba; }
-  #prep-attempts .svc-usenet { background: #5b8def; }
+  .svc-torbox { background: #3ddc97; }
+  .svc-realdebrid { background: #f2c94c; }
+  .svc-alldebrid { background: #56ccf2; }
+  .svc-premiumize { background: #bb86fc; }
+  .svc-debridlink { background: #6fcf97; }
+  .svc-debrid, .svc-other { background: #9aa6ba; }
+  .svc-usenet { background: #5b8def; }
+  .svc-plex { background: #e5a00d; }
+  .svc-jellyfin { background: #aa5cc3; }
+  .svc-library { background: #9aa6ba; }
   #prep-attempts li.bad .svc-badge { background: #6b7385; color: rgb(11 15 22 / .7); }
   #prep-attempts .prep-attempt-name { flex: 1 1 auto; min-width: 0; overflow: hidden;
     text-overflow: ellipsis; white-space: nowrap; }
@@ -319,7 +323,7 @@
   #osd-time.scrub { color: #fff; }
   .osd-bar i { display: block; height: 100%; width: 0; background: var(--bolt); border-radius: 4px; }
   #osd-audio { color: #D5DBE5; font-size: 24px; margin-top: 6px; }
-  #osd-source { color: #D5DBE5; font-size: 24px; margin-top: 4px; }
+  #osd-source { color: #D5DBE5; font-size: 24px; margin-top: 4px; display: flex; align-items: center; gap: 10px; }
   .osd-foot { display: flex; justify-content: space-between; color: var(--muted); font-size: 24px; margin-top: 12px; }
   #audio-menu { position: absolute; top: 0; right: 0; bottom: 0; width: 760px; padding: 64px 64px 48px;
     background: rgba(17,23,34,.94); display: none; z-index: 5; }
